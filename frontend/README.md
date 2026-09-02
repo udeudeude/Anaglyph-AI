@@ -1,50 +1,42 @@
-# React + TypeScript + Vite
+# Anaglyph AI Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + TypeScript + Vite frontend for Anaglyph AI.
 
-Currently, two official plugins are available:
+The interface accepts a single 2D image, displays the Depth Anything V2 depth-map result, and previews three downloadable stereoscopic outputs produced by the Flask backend:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+1. Red/cyan anaglyph
+2. Parallel stereo pair
+3. Cross-eyed stereo pair
 
-## Expanding the ESLint configuration
+## Development
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
-
-- Configure the top-level `parserOptions` property like this:
-
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+```bash
+npm install
+npm run dev
 ```
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+By default the frontend talks to the local Flask backend at:
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
-
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
+```text
+http://localhost:8000
 ```
+
+You can override that with:
+
+```text
+VITE_FLASK_BACKEND_API_URL=<backend URL>
+```
+
+Image resizing defaults to a maximum dimension of 1500 pixels and can be overridden with:
+
+```text
+VITE_MAX_DIMENSION=<pixels>
+```
+
+## Build
+
+```bash
+npm run build
+```
+
+See the repository-level `README.md` for the complete architecture, backend/model setup, local/offline operation, and output-format details.
