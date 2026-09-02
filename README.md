@@ -1,120 +1,160 @@
 # Anaglyph AI
-A Flask-React website that allows a user to upload a monocular image, and converts it to a [3D Anaglyph](https://en.wikipedia.org/wiki/Anaglyph_3D) image to be viewed with red-cyan glasses.
 
-## Check it out here: [anaglyph-ai.com](https://anaglyph-ai.com)!
+Anaglyph AI converts a single 2D (monocular) image into three stereoscopic 3D output formats:
 
-## Contents
-- [Image Upload and Depth Map Generation](#image-upload-and-depth-map-generation)
-- [Anaglyph Generation and Editor](#anaglyph-generation-and-editor)
-- [Converting from Monocular to Stereoscopic](#converting-from-monocular-to-stereoscopic)
-  - [Depth Map Generation](#depth-map-generation)
-  - [Stereo Image Pair Generation from Depth Data](#stereo-image-pair-generation-from-depth-data)
-- [Merging Stereo Images into an Anaglyph](#merging-stereo-images-into-an-anaglyph)
-- [Pop In vs Pop Out](#pop-in-vs-pop-out)
-- [Strength](#strength)
-- [Retinal Rivalry](#retinal-rivalry)
-- [Examples](#examples)
+1. **Red/cyan anaglyph** for red-cyan glasses.
+2. **Parallel stereo pair** (left-eye image on the left, right-eye image on the right) for relaxed/wall-eyed free viewing.
+3. **Cross-eyed stereo pair** (right-eye image on the left, left-eye image on the right) for cross-eyed free viewing.
 
-## Image Upload and Depth Map Generation
-<img width="1485" alt="ImageAndDepthMap" src="https://github.com/user-attachments/assets/88ce05c5-8834-46db-86ff-64f1696cbe5b" />
+The project uses **Depth Anything V2** to estimate a depth map from the source image, then synthesizes left- and right-eye views from that depth data. The three output formats are different presentations of the same generated stereo pair.
 
+The original project and hosted demonstration were created by **Duy Huynh**. The original hosted version is at [anaglyph-ai.com](https://anaglyph-ai.com). This repository version extends the output stage to include downloadable parallel and cross-eyed stereo pairs in addition to the original anaglyph.
 
-## Anaglyph Generation and Editor
-<img width="947" alt="Anaglyph" src="https://github.com/user-attachments/assets/33846a4a-ed99-4303-a461-0daa72df3018" />
+## What the application does
 
+The processing pipeline is:
 
-## Converting from Monocular to Stereoscopic
-3D images are usually created from taking two photographs from slightly shifted positions, to mimic how our eyes each see a slightly shifted version of the image the other eye sees. 
-![407320149-beeb8709-ae66-4e25-a2be-237df13d1063-min](https://github.com/user-attachments/assets/49ebf6d0-be4b-4f48-a9bd-828c4a375aab)
-These are called stereoscopic images, and when one eye sees one image and the other eye sees the other image, the disparity between the images is used by our brain to determine the depth of different objects in the image. However, requiring two photos to be taken right next to each other is both tedious and requires intention of creating a stereoscopic image pair - if you only take one photo in the moment, you cannot make it 3D later on. This was the problem I intended to solve. 
+`single 2D image -> Depth Anything V2 depth map -> synthetic left/right views -> chosen 3D output`
 
-The creation of a stereo image pair from a single monocular image can be broken down into 2 steps: generating a depth map, and then using the depth data to transform the image to a left and right eye image.
+The interface displays the uploaded image and estimated depth map, then generates all three 3D formats. Each result has its own **Download** button.
 
-### Depth Map Generation
-I used [DepthAnythingV2](https://github.com/DepthAnything/Depth-Anything-V2), an open source depth estimation model, to generate a depth map for the image.
+### Controls
 
-### Stereo Image Pair Generation from Depth Data
-I implemented this by first setting a max disparity in terms of number of pixels. This dictates the furthest a pixel in one eye image can be from the corresponding pixel in the other eye image, and can be thought of as the strength of the 3D Anaglyph. Then, I create a 2D NumPy array of shifts, which dictates how far each pixel would have to move from the original image to generate an eye image. This shifts array is calculated as a linear interpolation between 0 and max disparity, with the parameter being the normalised depth data. Once I have the shifts array, I use some NumPy magic and advanced indexing to move all the pixels to their appropriate location, with the closer pixel taking priority if two pixels end up in the same location. 
+- **Strength** sets maximum stereo disparity as a percentage of image width, from 0% to 6%.
+- **Pop Out** changes the zero-parallax placement so the stereo effect is biased toward appearing in front of rather than behind the display plane.
+- **Minimise Retinal Rivalry** applies the existing optimized color transformation to the red/cyan anaglyph only. It does not alter the parallel or cross-eyed stereo pairs.
 
-However, this leaves "holes" in the eye image, or rather black pixels, where no pixels have ended up after being shifted.
+## Output formats
 
-![Holes](https://github.com/user-attachments/assets/cfb15040-6d16-46c2-a0e5-3a6af6641131)
+### Red/cyan anaglyph
 
+The left and right stereo views are combined into color channels so each eye receives a different view through red-cyan glasses. The optional retinal-rivalry reduction uses optimized color matrices based on the Dubois approach.
 
-This is inevitable: when generating stereo images from a monocular image, we are simply missing information, such as what the left eye should have been able to see behind a certain edge. 
-To fix this, I first considered implementing a forward fill, but it is ambiguous whether the pixels in the background or those in the foreground should be used to fill the holes, as this depends on the actual geometry of the closer object. Therefore, I used OpenCV's [inpainting](https://docs.opencv.org/4.x/d7/d8b/group__photo__inpaint.html) function to fill the holes, specifically INPAINT_TELEA, as per this [comparative study](https://globaljournals.org/GJCST_Volume21/2-Comparative-Study-of-OpenCV.pdf) of the different inpaint algorithms efficiency.
+### Parallel stereo
 
-<img width="1374" alt="Filled" src="https://github.com/user-attachments/assets/07aff3b8-d16b-41c3-90b8-1da917e43928" />
+The output is a single side-by-side JPEG arranged:
 
-## Merging Stereo Images into an Anaglyph
-After generating the left eye and right eye image, I make the anaglyph image by setting the red channel to that of the left eye image, and the green and blue channel to that of the right eye image. Note: when minimising retinal rivalry, it is a little more complicated and involves transforming the colours of the two images with specific matrices, and then adding the images together 
+`LEFT EYE | RIGHT EYE`
 
-## Pop In vs Pop Out
-This option determines where the zero parallax plane is in the scene, which determines if objects appear to be popping into (behind) or popping out of (in front of) the screen. Whatever objects are at the zero parallax plane will appear to be at the exact distance of the screen, as no shifting will be performed on them. This is analogous to the focal plane of the eyes. 
+It is intended for parallel (wall-eyed) free viewing, in which the eyes converge less than they would on the physical image plane.
 
-However to simplify use, I have decided to restrict the zero parallax plane to be either be at the distance furthest object, which causes the furthest object to appear at the screen distance, and everything else to appear in front of the screen, or the zero parallax plane is at the distance of the closest object, which causes the closest object to appear at the screen distance, and everything else to appear behind the screen. 
+### Cross-eyed stereo
 
-To see this effect with red-cyan anaglyph glasses, below is a pop in version of an image, and then a pop out version of the image.
+The same stereo pair is saved in the opposite order:
 
-<img width="1024" alt="PopOutVSPopIn" src="https://github.com/user-attachments/assets/01fc9fd3-d265-42fb-96fe-fccd142da64b" />
+`RIGHT EYE | LEFT EYE`
 
+It is intended for cross-eyed free viewing.
 
-And here is a another very effective example of Pop Out:
+## How the 3D conversion works
 
-<img width = "700" alt="IcebergPopOut" src="https://github.com/user-attachments/assets/5a197125-8ef3-420d-9427-1a254830324a" />
+### 1. Depth estimation
 
+The backend uses [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2), an open-source monocular depth-estimation model. The current code loads the **ViT-S (`vits`)** model.
 
+At runtime PyTorch chooses an available compute device in this order:
 
-## Strength
-This slider actually sets the maximum disparity in terms of a percentage of the image width, from 0% to 6%. This means at 0%, there is no 3D effect, and at 6% of the image width, the two points with the most disparity (the furthest point in pop in, or the closest point in pop out) will have a distance of 6% of the image width between them when comparing the left eye image to the right eye image.
+1. CUDA, when an NVIDIA CUDA device is available.
+2. Apple MPS, when supported.
+3. CPU otherwise.
 
-<img width="1198" alt="Strength" src="https://github.com/user-attachments/assets/a3362403-2300-4474-978f-fff40e8c2b8a" />
+That means an Intel Mac uses the CPU path.
 
-## Retinal Rivalry
-Retinal rivalry (or [binocular rivalry](https://en.wikipedia.org/wiki/Binocular_rivalry)) is a visual phenomenon that occurs when each eye recieves different information, and the brain cannot reconcile them. This causes a "flashing" effect, where briefly, one eye will dominate, and you will see what that eye sees, and then the other will take over, and so on (although if you have a very dominant eye, this may not happen as much). 
+### 2. Stereo image synthesis
 
-When wearing red-cyan anaglyph glasses, this effect occurs most strongly when viewing a red portion of an image, as the red filter causes the left eye to see a bright portion, while the cyan filter causes the right eye to see a a dark portion. This conflict causes retinal rivalry, and can make viewing images with red in them uncomfortable.
+The normalized depth map is converted into horizontal pixel shifts. Near and far pixels receive different shifts, producing synthetic left-eye and right-eye views. Because a single photograph does not contain the surfaces hidden behind foreground objects, shifting pixels creates holes near depth discontinuities. The project fills those holes with OpenCV's Telea inpainting method.
 
-If you are viewing with red-cyan analgyph glasses currently, take a look at the colours below and note the uncomfortable flashing effect in the red portion at the top:
+### 3. Output rendering
 
-<img src="https://github.com/user-attachments/assets/5729f953-b91a-41f2-b17d-9509f639f806" width="400" />
+The left/right views are then either:
 
+- merged into a red/cyan anaglyph,
+- concatenated left-to-right for parallel viewing, or
+- concatenated in reversed order for cross-eyed viewing.
 
-To allow the user to reduce the retinal rivalry that the anaglyph produces, I implemented a minimise retinal rivalry option when generating the anaglyph. This is using optimised matrices from a [Sanders and McAllister paper](https://www.spiedigitallibrary.org/conference-proceedings-of-spie/5006/1/Producing-anaglyphs-from-synthetic-images/10.1117/12.474130.full) to transform the colours of the stereo images before merging them. These matrices are based on the method described in [Eric Dubois' paper](https://www.site.uottawa.ca/~edubois/icassp01/anaglyphdubois.pdf) to create optimised least squares Dubois anaglyphs. This is calculated in the CIE XYZ colour space, and works to minimise retinal rivalry by reducing how different the image seen by the left eye is to the image seen by the right eye. This is actually a by product of main goal of Dubois's method, which is to minimise the square error between resultant image colours and the original colours.
+## Local and offline use
 
-The result of this on the image above is:
+The application can run locally. Once the software dependencies, Depth Anything V2 source, and model checkpoint are present on the computer, image processing does **not** require an Internet connection.
 
-<img src="https://github.com/user-attachments/assets/4f291005-7a0f-449d-9c73-9e0cd8569a03" width="400" />
+The backend expects the model code and checkpoint at these paths relative to `backend/`:
 
-When viewed through red-cyan anaglyph glasses, the previously "flashing" red portion will now be significantly more stable, and more green, whereas through the glasses the rest of the colours should appear only very slightly affected. Interestingly, the transformation seems very similar to protonopia, or red colour blindness, when viewed without the glasses.
+```text
+ai_models/Depth_Anything_V2/depth_anything_v2/...
+ai_models/checkpoints/depth_anything_v2_vits.pth
+```
 
-In a real photo example, compare - through red-cyan anaglyph glasses - the retinal rivalry on my friend in the middle's coat, before and after minimising retinal rivalry:
+The checkpoint is intentionally not stored in Git because model files are large.
 
-<image src="https://github.com/user-attachments/assets/a55a2adc-6ca6-4225-8f0d-dbf1a85e76ae" width="400" />
-<image src="https://github.com/user-attachments/assets/b1b3c879-6dc9-43fe-adde-c49e55860d30" width="400" />
+### Backend
 
-## Examples
-*All the examples below have minimise retinal rivalry selected, for more pleasant viewing experience through red-cyan anaglyph glasses. That is why they may seem more "green" than would be expected when viewing them with the naked eye.*
-![anaglyph](https://github.com/user-attachments/assets/9cdc29fe-57e3-4037-a2ab-d247ec066850)
-![anaglyph-2](https://github.com/user-attachments/assets/328ecaad-fcf4-4d34-8f62-3255f6b07a27)
-![anaglyph-9](https://github.com/user-attachments/assets/44a2a282-5d13-423c-8aea-9441c00ad92f)
-![image](https://github.com/user-attachments/assets/4f4c3b7d-c07b-42e2-a948-34398b728519)
-![image](https://github.com/user-attachments/assets/cb994d7f-954f-4b67-9dd4-fd9f18551ef9)
-![image](https://github.com/user-attachments/assets/d8e65ce0-0c3e-4dc5-8f9b-79c870aa5dfd)
-![image](https://github.com/user-attachments/assets/7ec5c66c-5e29-4e96-9454-3f353df7422c)
-![anaglyph-13](https://github.com/user-attachments/assets/b9960291-847a-42e3-a210-6fa46476b5f6)
-![anaglyph-14](https://github.com/user-attachments/assets/a016b43a-dc3f-469e-a9dd-e158230052d1)
-![anaglyph-15](https://github.com/user-attachments/assets/46ba0c87-b367-4f86-a391-90587a367b78)
-![anaglyph-16](https://github.com/user-attachments/assets/79e81159-522b-4760-9c67-0bc2ec66e456)
-![anaglyph-17](https://github.com/user-attachments/assets/2d84ea9c-83c5-470b-8788-39ac33d9e16b)
+From the repository root:
 
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
+Place the Depth Anything V2 source under `backend/ai_models/Depth_Anything_V2/` and the ViT-S checkpoint at `backend/ai_models/checkpoints/depth_anything_v2_vits.pth`, then start Flask:
 
+```bash
+python app.py
+```
 
+The backend defaults to `http://localhost:8000`.
 
+> **Intel Mac note:** the inference code has a CPU fallback. PyTorch/Python package compatibility varies by macOS and Python version, so an Intel Mac may require a compatible CPU build of PyTorch rather than the exact development build pinned by the original project.
 
+### Frontend
 
+In a second Terminal window:
 
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
+The frontend falls back to `http://localhost:8000` for the Flask API when `VITE_FLASK_BACKEND_API_URL` is not defined.
 
+Open the local Vite address shown in Terminal, normally `http://localhost:5173`.
 
+### Optional frontend environment variables
+
+```text
+VITE_FLASK_BACKEND_API_URL=http://localhost:8000
+VITE_MAX_DIMENSION=1500
+```
+
+Both have local defaults in the frontend code.
+
+## Project structure
+
+```text
+backend/
+  app.py                    Flask API and output endpoints
+  depth_map_generator.py    Depth Anything V2 loading/inference
+  anaglyph_generator.py     Stereo synthesis and anaglyph rendering
+frontend/
+  src/ImageUpload.tsx       Upload/depth-map interface
+  src/AnaglyphEditor.tsx    3D controls, previews, and downloads
+```
+
+Important API endpoints:
+
+- `POST /image` uploads the source image.
+- `GET /depth-map` generates and returns the depth visualization.
+- `GET /anaglyph` returns the red/cyan output.
+- `GET /stereo-pair?mode=parallel` returns the parallel pair.
+- `GET /stereo-pair?mode=cross` returns the cross-eyed pair.
+
+## Original implementation details
+
+The original project generates a maximum disparity from the selected strength, maps normalized depth values into pixel shifts, and resolves collisions so nearer pixels take priority. OpenCV inpainting repairs uncovered pixels created by the synthetic viewpoint shift.
+
+For the anaglyph, the standard mode combines the red channel from the left view with the green/blue channels from the right view. The retinal-rivalry option uses optimized matrices based on work by Sanders and McAllister and Eric Dubois to reduce inter-eye color conflict.
+
+## Current status
+
+The repository code now supports all three output formats. The three-format changes have been committed to `master`, but the complete local application still needs runtime validation on the target Intel Mac environment, particularly the local PyTorch installation and Depth Anything V2 checkpoint setup.
