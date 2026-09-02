@@ -1,5 +1,4 @@
 import './styles/App.css'
-import anaglyphAILogoLight from './assets/anaglyph_ai_pop_in_transparent_light_mode.svg'
 import ImageUpload from './ImageUpload.tsx'
 import { useState } from 'react'
 import AnaglyphEditor from './AnaglyphEditor.tsx'
@@ -7,22 +6,39 @@ import Footer from './Footer.tsx'
 
 function App() {
     const [isDepthMapReady, setIsDepthMapReady] = useState<boolean>(false)
-    // Prevent changing the source image while depth estimation or 3D output generation is in progress.
-    // Initialize to true so the user can upload an image immediately.
     const [isChangeAllowed, setIsChangeAllowed] = useState<boolean>(true)
 
     return (
-        <>
-            <div>
-                <img src={anaglyphAILogoLight}
-                   className="responsive_title"
-                   alt="Anaglyph AI Logo"/>
-            </div>
-            <ImageUpload setIsDepthMapReadyStateLifter={setIsDepthMapReady} isChangeAllowed={isChangeAllowed} setIsChangeAllowed={setIsChangeAllowed}/>
-            <AnaglyphEditor isDepthMapReady={isDepthMapReady} isChangeAllowed={isChangeAllowed} setIsChangeAllowed={setIsChangeAllowed}/>
+        <div className="appShell">
+            <header className="topBar">
+                <div>
+                    <div className="brandEyebrow">LOCAL AI STEREO WORKSPACE</div>
+                    <h1 className="brandTitle">Anaglyph AI</h1>
+                </div>
+                <div className="localBadge"><span className="statusDot" /> Processing locally</div>
+            </header>
+
+            <main className="workspace">
+                <aside className="controlRail">
+                    <ImageUpload
+                        setIsDepthMapReadyStateLifter={setIsDepthMapReady}
+                        isChangeAllowed={isChangeAllowed}
+                        setIsChangeAllowed={setIsChangeAllowed}
+                    />
+                </aside>
+
+                <section className="stagePanel">
+                    <AnaglyphEditor
+                        isDepthMapReady={isDepthMapReady}
+                        isChangeAllowed={isChangeAllowed}
+                        setIsChangeAllowed={setIsChangeAllowed}
+                    />
+                </section>
+            </main>
+
             <Footer />
-        </>
-  )
+        </div>
+    )
 }
 
 export default App
