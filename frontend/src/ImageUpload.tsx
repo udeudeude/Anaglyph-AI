@@ -8,8 +8,8 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
     const [imageUrl, setImageUrl] = useState<string | null>(null);
     const [depthMapUrl, setDepthMapUrl] = useState<string | null>(null);
     const [depthMapIsLoading, setDepthMapIsLoading] = useState<boolean>(false);
-    const apiUrl = import.meta.env.VITE_FLASK_BACKEND_API_URL;
-    const maxDimension = import.meta.env.VITE_MAX_DIMENSION; // Client side resizing to reduce internet bandwidth
+    const apiUrl = import.meta.env.VITE_FLASK_BACKEND_API_URL || "http://localhost:8000";
+    const maxDimension = Number(import.meta.env.VITE_MAX_DIMENSION || 1500);
     const [imageAspectRatio, setImageAspectRatio] = useState<number>(0); // width / height
     const [windowDimensions, setWindowDimensions] = useState({
         width: window.innerWidth,
@@ -23,7 +23,7 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
         const files = event.target.files;
         if (files && files.length > 0) {
             const selectedImage = files[0]; // Get the selected image file
-            console.log("Selected file:", selectedImage); // Log the selected file
+            console.log("Selected file:", selectedImage); // Log selected file
             await handleImageUpload(selectedImage); // Call upload function
         } else {
             console.error("No files selected");
@@ -33,7 +33,7 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
     const handleImageUpload = async (imageFile: File) => {
         const formData = new FormData();
 
-        // Resize image to maxDimension to reduce internet bandwidth
+        // Resize image client-side to reduce processing time and transfer size.
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
         const image = new Image();
@@ -64,7 +64,7 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
             // @ts-ignore
             ctx.drawImage(image, 0, 0, width, height);
 
-            // Now send the image to the server
+            // Now send the image to the backend
             canvas.toBlob(async (blob) => {
                 if (blob) {
                     // Display the image they uploaded as soon as possible
@@ -75,26 +75,28 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
                     console.log("Uploading image...");
 
                     try {
-                        setIsDepthMapReadyStateLifter(false); // Set depth map ready to false to stop rendering anaglyph editor
+                        setIsDepthMapReadyStateLifter(false); // Set depth map ready to false to stop rendering output editor
                         const response = await fetch(`${apiUrl}/image`, {
                             method: "POST",
                             body: formData,
                             credentials: "include",
                         });
-                        console.log("Response status:", response.status); // Log response status
+                        console.log("Response status:", response.status);
                         if (response.ok) {
                             const data = await response.json();
                             console.log("Upload successful:", data);
 
-                            setDepthMapUrl(null); // To unload the previous depth map image so the container will fit the new image
+                            setDepthMapUrl(null); // Unload the previous depth map image so the container fits the new image
                             setDepthMapIsLoading(true); // Start loading spinner
                             // Don't use await, causes error where depth map is not shown
                             fetchDepthMap();
                         } else {
                             console.error("Failed to upload image", response.json());
+                            setIsChangeAllowed(true);
                         }
                     } catch (error) {
                         console.error("Failed to upload image", error);
+                        setIsChangeAllowed(true);
                     }
                 }
             }, "image/jpeg");
@@ -105,12 +107,11 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
 
 
     const handleRandomButtonClick = async () => {
-        // Check if change is allowed (so image upload, depth map retrieval and anaglyph generation is done)
+        // Check if change is allowed (so image upload, depth map retrieval and 3D output generation is done)
         // but allow it if no image has been uploaded yet
         if (isChangeAllowed == false && imageUrl != null) return;
         try {
-            setIsDepthMapReadyStateLifter(false); // Set depth map ready to false to stop rendering anaglyph editor
-            // Uploading, so block the upload buttons
+            setIsDepthMapReadyStateLifter(false); // Set depth map ready to false to stop rendering output editor
             setIsChangeAllowed(false);
             const response = await fetch(`${apiUrl}/random_image`, {
                 method: "GET",
@@ -120,28 +121,28 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
                 const randomImageBlob = await response.blob();
                 if (randomImageBlob.size === 0) {
                     console.error("Random image is empty");
+                    setIsChangeAllowed(true);
                     return;
                 }
                 const randomImageUrl = URL.createObjectURL(randomImageBlob);
-                setDepthMapUrl(null); // To unload the previous depth map image so the container will fit the new image
-                setDepthMapIsLoading(true); // Start loading spinner
+                setDepthMapUrl(null);
+                setDepthMapIsLoading(true);
                 setImageUrl(randomImageUrl);
 
-                // Create an image to get its dimensions
                 const image = new Image();
                 image.onload = () => {
-                    // Set the aspect ratio when the image loads
                     setImageAspectRatio(image.width / image.height);
                 };
                 image.src = randomImageUrl;
 
-                // Don't use await, causes error where depth map is not shown
                 fetchDepthMap();
             } else {
                 console.error("Failed to fetch random image", response.statusText);
+                setIsChangeAllowed(true);
             }
         } catch (error) {
             console.error("Failed to fetch random image", error);
+            setIsChangeAllowed(true);
         }
     }
 
@@ -155,24 +156,30 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
                 const depthMapBlob = await response.blob();
                 if (depthMapBlob.size === 0) {
                     console.error("Depth map is empty");
+                    setDepthMapIsLoading(false);
+                    setIsChangeAllowed(true);
                     return;
                 }
                 const depthMapUrl = URL.createObjectURL(depthMapBlob);
-                setDepthMapIsLoading(false); // Stop loading spinner
+                setDepthMapIsLoading(false);
                 setDepthMapUrl(depthMapUrl);
                 console.log("Depth map fetched successfully", depthMapUrl);
-                setIsDepthMapReadyStateLifter(true); // Set depth map ready to true to start rendering anaglyph editor
+                setIsDepthMapReadyStateLifter(true);
 
             } else {
                 console.error("Failed to fetch depth map", response.statusText);
+                setDepthMapIsLoading(false);
+                setIsChangeAllowed(true);
             }
         } catch (error) {
             console.error("Failed to fetch depth map", error);
+            setDepthMapIsLoading(false);
+            setIsChangeAllowed(true);
         }
     }
 
      const handleUploadButtonClick = () => {
-        // Check if the change is allowed (so image upload, depth map retrieval and anaglyph generation is done)
+        // Check if the change is allowed (so image upload, depth map retrieval and 3D generation is done)
          // but allow it if no image has been uploaded yet
         if (isChangeAllowed == false && imageUrl != null) return;
         if (imageInputRef.current) {
@@ -181,32 +188,27 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
     };
 
     const aspectRatioAndAreaDimensionsToCoveredArea = (aspectRatio: number, areaWidth: number, areaHeight: number) => {
-        let width = areaWidth; // Start with full width
-        let height = width / aspectRatio; // Calculate height based on aspect ratio
-        // If the calculated height exceeds areaHeight, scale down
+        let width = areaWidth;
+        let height = width / aspectRatio;
         if (height > areaHeight) {
             height = areaHeight;
-            width = height * aspectRatio; // Recalculate width based on the height
+            width = height * aspectRatio;
         }
-        // Calculate area for aspect ratio
         return width * height;
     }
 
     const imagePairBestSpaceLayout = () => {
-        const rowAspectRatio = imageAspectRatio * 2; // Doubling width
-        const columnAspectRatio = imageAspectRatio / 2; // Doubling height
+        const rowAspectRatio = imageAspectRatio * 2;
+        const columnAspectRatio = imageAspectRatio / 2;
 
-        // If change these display sizes in CSS, make sure to them here as well
-        const areaWidth = windowDimensions.width * 0.95; // 95% of the window width
-        const areaHeight = windowDimensions.height * 0.7; // 70% of the window height in css "height: 70vh; /* to always see the logo and the buttons*/"
+        // If these display sizes change in CSS, update them here as well.
+        const areaWidth = windowDimensions.width * 0.95;
+        const areaHeight = windowDimensions.height * 0.7;
 
-
-        // Calculate the area covered by each layout
         const rowArea = aspectRatioAndAreaDimensionsToCoveredArea(rowAspectRatio, areaWidth, areaHeight);
         const columnArea = aspectRatioAndAreaDimensionsToCoveredArea(columnAspectRatio, areaWidth, areaHeight);
 
         if (rowArea > columnArea) {
-            // Return row layout
             return (
                 <div className="imagePairContainerRow">
                     <div className="imagePairLeftRow">
@@ -221,7 +223,6 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
                 </div>
             );
         } else {
-            // Return column layout
             return (
                 <div className="imagePairContainerColumn">
                     <div className="imagePairLeftColumn">
@@ -238,24 +239,15 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
         }
     }
 
-
-
-
     return (
         <div>
             {imageUrl && imagePairBestSpaceLayout()}
-            {/* Resize Observer to detect window size changes and retrigger the above line*/}
             <ResizeObserver
-                // Originaly used onResize{(width, height) and then set window dimensions to width and height
-                // but this is just wrong. Messes up height at start, and is much smaller than the actual window size
-                // Most likely onResize is working on a specific element, not the window
                 onResize={() => {
                     setWindowDimensions({ width: window.innerWidth, height: window.innerHeight });
                 }}
             />
 
-            {/* Div around each button to put them on the rightmost and leftmost, with width 50% to make them half the page each
-                and then div around that to make the gap centred on the page. Also only render if anaglyph is done */}
            <div style={{ display: "flex", justifyContent: "center", marginBottom: "10px" }}>
                 <div style={{ display: "flex", justifyContent: "right", width: "50%" }}>
                     <button onClick={handleUploadButtonClick} className="anaglyphButton">
@@ -269,20 +261,14 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
                 </div>
             </div>
 
-
             <input
                 type="file"
                 accept="image/jpeg, image/jpg, image/gif, image/png"
                 ref={imageInputRef}
                 style={{ display: "none" }}
                 onClick={(event) => {
-                    // Reset the input value to null to ensure onChange fires even if the same file is selected
-                    // Needed as random image doesn't change the image, so after a random image
-                    // when the previous image is selected it sees it as no change
-                    // However, clicking the button calls the click to the input again, so setting value to ""
-                    // will ensure the onChange will fire as "" is different to the previous value
                     event.currentTarget.value = "";}}
-                onChange={handleImageChange} // Handle file input changes
+                onChange={handleImageChange}
             />
         </div>
     );
