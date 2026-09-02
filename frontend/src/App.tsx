@@ -7,9 +7,8 @@ import Footer from './Footer.tsx'
 
 function App() {
     const [isDepthMapReady, setIsDepthMapReady] = useState<boolean>(false)
-    // This is to check if the anaglyph is done and the depth map has been retrieved and the image has been retrieved
-    // , to prevent uploading a new image until it is done
-    // Init to true so that the user can upload an image at the start
+    // Prevent changing the source image while depth estimation or 3D output generation is in progress.
+    // Initialize to true so the user can upload an image immediately.
     const [isChangeAllowed, setIsChangeAllowed] = useState<boolean>(true)
 
     return (
@@ -20,7 +19,7 @@ function App() {
                    alt="Anaglyph AI Logo"/>
             </div>
             <ImageUpload setIsDepthMapReadyStateLifter={setIsDepthMapReady} isChangeAllowed={isChangeAllowed} setIsChangeAllowed={setIsChangeAllowed}/>
-            { <AnaglyphEditor isDepthMapReady={isDepthMapReady} isChangeAllowed={isChangeAllowed} setIsChangeAllowed={setIsChangeAllowed}/>}
+            <AnaglyphEditor isDepthMapReady={isDepthMapReady} isChangeAllowed={isChangeAllowed} setIsChangeAllowed={setIsChangeAllowed}/>
             <Footer />
         </>
   )
