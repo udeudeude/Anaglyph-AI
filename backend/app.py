@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, session, send_file, send_from_directory
+from flask import Flask, jsonify, request, session, send_file
 from flask_cors import CORS
 import uuid
 import os
@@ -13,6 +13,7 @@ from depth_map_generator import depth_map_generator
 from anaglyph_generator import anaglyph_generator
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
+from werkzeug.utils import send_from_directory
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
@@ -161,10 +162,15 @@ def download_depth_map():
         kind = request.args.get("kind", "gray16").lower()
         if kind == "gray16":
             return send_file(session_path("depth_map_gray16.png"), as_attachment=True, download_name="depth-map-16bit.png", mimetype="image/png")
-        if kind == "color":
-            return send_file(session_path("depth_map_coloured.jpg"), as_attachment=True, download_name="depth-map-color.jpg", mimetype="image/jpeg")
         if kind == "npy":
             return send_file(session_path("depth_map.npy"), as_attachment=True, download_name="depth-map-float32.npy", mimetype="application/octet-stream")
+        if kind == "color":
+            depth_map = np.load(session_path("depth_map.npy"), allow_pickle=False).astype(np.float32)
+            coloured = depth_map_generator.colour_depth_map(depth_map)
+            ok, encoded = cv2.imencode(".png", coloured)
+            if not ok:
+                raise RuntimeError("Could not encode color depth map")
+            return send_file(io.BytesIO(encoded.tobytes()), as_attachment=True, download_name="depth-map-color.png", mimetype="image/png")
         return jsonify({"error": "kind must be gray16, color, or npy"}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -314,7 +320,6 @@ def get_output(kind):
         return jsonify({"error": str(e)}), 400
 
 
-# Backwards-compatible endpoints retained for old frontends/bookmarks.
 @app.route("/anaglyph", methods=["GET"])
 def legacy_anaglyph():
     return get_output("anaglyph")
