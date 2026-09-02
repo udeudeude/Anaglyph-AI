@@ -1,59 +1,95 @@
-# Anaglyph AI
+# Anaglyph & Friends
 
-Anaglyph AI converts a single 2D (monocular) image into three stereoscopic 3D output formats:
+> GitHub repository name: `Anaglyph-AI`  
+> Current application name: **Anaglyph & Friends**
+
+Anaglyph & Friends converts a single 2D image into several stereoscopic products using a Depth Anything V2 monocular depth estimate:
 
 1. **Red/cyan anaglyph** for red-cyan glasses.
-2. **Parallel stereo pair** (left-eye image on the left, right-eye image on the right) for relaxed/wall-eyed free viewing.
-3. **Cross-eyed stereo pair** (right-eye image on the left, left-eye image on the right) for cross-eyed free viewing.
+2. **Parallel stereo pair** with left-eye view on the left.
+3. **Cross-eyed stereo pair** with the views swapped.
+4. **Individual left-eye and right-eye views**.
+5. **Depth-map data**, including a full-resolution 16-bit grayscale PNG and float32 NumPy array.
 
-The project uses **Depth Anything V2** to estimate a depth map from the source image, then synthesizes left- and right-eye views from that depth data. The three output formats are different presentations of the same generated stereo pair.
+The original Anaglyph AI project and hosted demonstration were created by **Duy Huynh**. This repository version extends the original application for local/offline stereoscopic experimentation.
 
-The original project and hosted demonstration were created by **Duy Huynh**. The original hosted version is at [anaglyph-ai.com](https://anaglyph-ai.com). This repository version extends the original project with parallel/cross-eyed output and a redesigned local-first stereo workspace.
+## Current interface
 
-## Interface
+The local frontend is a dark desktop-style workspace with:
 
-The current frontend uses a dark desktop workspace designed for local image processing:
+- drag-and-drop, file-picker, and clipboard-paste image loading;
+- full-resolution source retention;
+- source and depth-map inspection views;
+- a resizable/collapsible source sidebar;
+- tabs for Red/Cyan, Parallel, and Cross-Eyed output;
+- independent on-screen stereo-pair sizing;
+- zoom and pan for preview inspection;
+- fullscreen viewing on black;
+- JPEG or PNG full-resolution downloads;
+- adjustable JPEG quality;
+- individual left/right-eye downloads;
+- downloadable 16-bit and raw float32 depth maps;
+- browser-local persistence for viewing/render settings.
 
-- a persistent **Source** sidebar with image upload and AI depth-map preview;
-- a large central output stage;
-- tabs for **Anaglyph**, **Parallel**, and **Cross-Eyed** viewing;
-- instant switching between the three generated outputs;
-- **Fullscreen** and **Download JPEG** controls for the selected output;
-- shared **3D Strength** and **Pop Out** controls;
-- **Reduce Retinal Rivalry** for the anaglyph output;
-- a visible local-processing indicator.
+### Keyboard shortcuts
+
+There is intentionally **no global regenerate shortcut**.
+
+| Key | Action |
+| --- | --- |
+| `R` | Red/cyan anaglyph |
+| `V` | Parallel view |
+| `X` | Cross-eyed view |
+| `F` | Fullscreen selected output |
+| `D` | Download selected output |
+| `U` | Open image chooser |
+| `Command-V` | Paste an image using the normal macOS paste action |
+
+## Full-resolution architecture
+
+Earlier versions resized uploaded images to a maximum dimension of 1500 pixels. The current version does **not** do that. The original decoded image is retained at its full pixel dimensions.
+
+The application now separates interactive viewing from final rendering:
+
+1. Upload and retain the full-resolution source.
+2. Estimate a normalized depth map with Depth Anything V2 and retain it as float32 data at source dimensions.
+3. Build one smaller cached left/right pair for interactive previews.
+4. Derive red/cyan, parallel, and cross-eyed previews from that same cached pair.
+5. On the first download for the current stereo settings, build one full-resolution left/right pair.
+6. Reuse that full-resolution pair for anaglyph, parallel, cross-eyed, left-eye, and right-eye downloads.
+
+This avoids recalculating stereo geometry separately for each output while keeping ordinary interface changes practical on an older CPU.
+
+## Processing controls
+
+- **3D strength** sets maximum stereo disparity from 0% to 6% of image width. Dragging the slider does not continually regenerate; the new value is applied when the control is released.
+- **Pop Out** changes the depth/disparity orientation.
+- **Reduce retinal rivalry** changes only the red/cyan combination. It reuses the existing stereo pair rather than rebuilding stereo geometry.
+- **On-screen pair size** changes only display size, never downloadable resolution.
+
+## Depth-map downloads
+
+The source sidebar exposes:
+
+- **16-bit depth PNG**: full source dimensions, normalized 0–65535 depth values;
+- **Raw float32**: the normalized depth array in NumPy `.npy` format;
+- **Color map**: the colored visualization used by the interface.
+
+The float32/16-bit products are preferable to the colored visualization for future image-processing work.
+
+## How conversion works
 
 The processing pipeline is:
 
-`single 2D image -> Depth Anything V2 depth map -> synthetic left/right views -> chosen 3D output`
+`single image -> Depth Anything V2 -> normalized depth -> synthetic left/right views -> selected stereo presentation`
 
-## Output formats
+Depth Anything V2 estimates depth from one image. The stereo renderer converts normalized depth into horizontal disparity, creates synthetic left/right views, and uses OpenCV Telea inpainting to fill holes revealed by displaced foreground objects.
 
-### Red/cyan anaglyph
-The left and right stereo views are combined into color channels so each eye receives a different view through red-cyan glasses. The optional retinal-rivalry reduction uses optimized color matrices based on the Dubois approach.
+A monocular source does not contain genuinely hidden surfaces, so synthesized stereo will inevitably have limitations around occlusion boundaries.
 
-### Parallel stereo
-The output is a single side-by-side JPEG arranged `LEFT EYE | RIGHT EYE`, intended for parallel (wall-eyed) free viewing.
+## Local/offline operation
 
-### Cross-eyed stereo
-The same stereo pair is saved as `RIGHT EYE | LEFT EYE`, intended for cross-eyed free viewing.
-
-## How the 3D conversion works
-
-### 1. Depth estimation
-The backend uses [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2), an open-source monocular depth-estimation model. The current code loads the **ViT-S (`vits`)** model.
-
-At runtime PyTorch chooses CUDA when available, then Apple MPS when supported, and otherwise CPU. An Intel Mac therefore uses the CPU path.
-
-### 2. Stereo image synthesis
-The normalized depth map is converted into horizontal pixel shifts. Near and far pixels receive different shifts, producing synthetic left-eye and right-eye views. A single photograph cannot contain surfaces hidden behind foreground objects, so shifting pixels creates holes near depth discontinuities. The project fills those holes with OpenCV's Telea inpainting method.
-
-### 3. Output rendering
-The left/right views are either merged into a red/cyan anaglyph, concatenated left-to-right for parallel viewing, or concatenated in reversed order for cross-eyed viewing.
-
-## Local and offline use
-
-Once the dependencies, Depth Anything V2 source, and model checkpoint are installed, image processing does **not** require an Internet connection.
+Once dependencies, Depth Anything V2 source, and its checkpoint are installed, image processing works without an Internet connection.
 
 The backend expects:
 
@@ -72,7 +108,14 @@ pip install -r requirements.txt
 python app.py
 ```
 
-The original requirements pin a development PyTorch build that may not exist for older Intel Macs. The tested 2015 Intel Mac setup used **Python 3.10.4, PyTorch 2.2.2, torchvision 0.17.2, and NumPy 1.26.4**. The Flask backend defaults to `http://localhost:8000`.
+The requirements now use the stack successfully tested on the 2015 Intel MacBook Pro used for this project:
+
+- Python 3.10.4
+- PyTorch 2.2.2
+- torchvision 0.17.2
+- NumPy 1.26.4
+
+The Flask backend defaults to `http://localhost:8000`. Debug/reloader mode is off by default to avoid loading the AI model twice on an older machine.
 
 ### Frontend
 
@@ -82,29 +125,26 @@ npm install
 npm run dev
 ```
 
-The frontend defaults to `http://localhost:8000` for the Flask API and a 1500-pixel maximum source dimension when environment variables are not defined. Vite normally serves the interface at `http://localhost:5173`.
+Vite normally serves the interface at `http://localhost:5173` and talks to `http://localhost:8000` by default.
 
-## Project structure
+## Important backend endpoints
 
-```text
-backend/
-  app.py                    Flask API and output endpoints
-  depth_map_generator.py    Depth Anything V2 loading/inference
-  anaglyph_generator.py     Stereo synthesis and anaglyph rendering
-frontend/
-  src/App.tsx               Application shell
-  src/ImageUpload.tsx       Source/depth sidebar
-  src/AnaglyphEditor.tsx    Tabbed 3D workspace, controls and downloads
-```
+- `POST /image` — retain a full-resolution source image.
+- `GET /depth-map` — estimate depth if needed and return the colored preview.
+- `GET /depth-map/download?kind=gray16` — full-resolution 16-bit depth PNG.
+- `GET /depth-map/download?kind=npy` — full-resolution float32 depth array.
+- `GET /render` — build/cache the interactive stereo preview pair.
+- `GET /prepare-full` — build/cache a full-resolution stereo pair for current settings.
+- `GET /output/<kind>` — return `anaglyph`, `parallel`, `cross`, `left`, or `right` from the cached stereo pair.
 
-Important API endpoints:
+Legacy `/anaglyph` and `/stereo-pair` routes remain for compatibility.
 
-- `POST /image` uploads the source image.
-- `GET /depth-map` generates and returns the depth visualization.
-- `GET /anaglyph` returns the red/cyan output.
-- `GET /stereo-pair?mode=parallel` returns the parallel pair.
-- `GET /stereo-pair?mode=cross` returns the cross-eyed pair.
+## Deferred larger features
 
-## Current status
+Three larger directions are intentionally **not part of this upgrade pass**:
 
-The three output formats and redesigned local interface are committed to `master`. The underlying local processing pipeline has been successfully run on a 2015 Intel MacBook Pro; the redesigned frontend should be re-tested after pulling the latest repository changes.
+- editable depth maps;
+- phantogram rendering;
+- packaging as a standalone double-clickable macOS application.
+
+They remain natural future extensions, but the current goal is to keep the working local web application stable while improving its everyday stereo workflow.
