@@ -4,7 +4,7 @@ import "./styles/AnaglyphEditor.css";
 type OutputKind = "anaglyph" | "parallel" | "cross";
 
 function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed}: { isDepthMapReady: boolean, isChangeAllowed: boolean, setIsChangeAllowed: (value: boolean) => void}) {
-    const apiUrl = import.meta.env.VITE_FLASK_BACKEND_API_URL;
+    const apiUrl = import.meta.env.VITE_FLASK_BACKEND_API_URL || "http://localhost:8000";
     const [outputUrls, setOutputUrls] = useState<Record<OutputKind, string | null>>({
         anaglyph: null,
         parallel: null,
@@ -100,7 +100,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed}:
     const outputCards: { kind: OutputKind; title: string; description: string }[] = [
         { kind: "anaglyph", title: "Red / Cyan Anaglyph", description: "View with red-cyan 3D glasses." },
         { kind: "parallel", title: "Parallel Stereo", description: "Left-eye image on the left; view with relaxed (wall-eyed) convergence." },
-        { kind: "cross", title: "Cross-Eyed Stereo", description: "Views are swapped for cross-eyed free viewing." },
+        { kind: "cross", title: "Cross-Eyed Stereo", description: "Right-eye image on the left; cross your eyes until the two views fuse." },
     ];
 
     return (
