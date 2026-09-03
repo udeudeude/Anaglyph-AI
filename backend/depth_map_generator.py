@@ -1,3 +1,5 @@
+import os
+import platform
 import time
 
 start_import_time = time.time()
@@ -7,6 +9,38 @@ import numpy as np
 from ai_models.Depth_Anything_V2.depth_anything_v2.dpt import DepthAnythingV2
 end_import_time = time.time()
 print(f"Elapsed time for imports: {end_import_time - start_import_time:.4f} seconds")
+
+
+def choose_torch_device() -> str:
+    """Choose a conservative device for Depth Anything V2.
+
+    CUDA is preferred when available. Apple MPS is used by default only on
+    Apple-silicon Macs. PyTorch can expose MPS on some Intel Macs, but common
+    Depth Anything operations (including bicubic upsampling in older PyTorch
+    builds) are not implemented there, so CPU is the reliable default.
+
+    AAF_TORCH_DEVICE=cpu|mps|cuda can be used to override this choice.
+    """
+    forced = os.getenv("AAF_TORCH_DEVICE", "").strip().lower()
+    if forced in {"cpu", "mps", "cuda"}:
+        if forced == "cuda" and not torch.cuda.is_available():
+            print("AAF_TORCH_DEVICE=cuda requested, but CUDA is unavailable; using CPU")
+            return "cpu"
+        if forced == "mps" and not torch.backends.mps.is_available():
+            print("AAF_TORCH_DEVICE=mps requested, but MPS is unavailable; using CPU")
+            return "cpu"
+        return forced
+
+    if torch.cuda.is_available():
+        return "cuda"
+
+    machine = platform.machine().lower()
+    if torch.backends.mps.is_available() and machine in {"arm64", "aarch64"}:
+        return "mps"
+
+    if torch.backends.mps.is_available() and platform.system() == "Darwin":
+        print("MPS detected on an Intel Mac; using CPU for Depth Anything compatibility")
+    return "cpu"
 
 
 class DepthMapGenerator:
@@ -24,7 +58,7 @@ class DepthMapGenerator:
 
     def load_model(self, encoder):
         print("Loading model")
-        device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
+        device = choose_torch_device()
         model_configs = {
             'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
             'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
