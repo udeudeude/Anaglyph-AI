@@ -12,6 +12,7 @@ import numpy as np
 from depth_map_generator import depth_map_generator
 from anaglyph_generator import anaglyph_generator
 from technique_generator import technique_generator
+from phantogram_generator import calibration_ruler, fit_to_print, render_phantogram
 from depth_sources import align_depth, load_depth_upload
 from stereo_formats import compatibility_stereo, make_anaglyph
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -572,6 +573,63 @@ def special_lenticular():
             output_w, output_h, effective_dpi = full_w, full_h, dpi
         output = technique_generator.lenticular(image, depth, output_w, output_h, effective_dpi, lpi, views, slant, strength, pop_out)
         return send_cv_image(output, "lenticular-interlaced", "png", 100, request.args.get("download", "false").lower() == "true")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/special/phantogram", methods=["GET"])
+def special_phantogram():
+    try:
+        scope = request.args.get("scope", "preview").lower()
+        if scope not in ("preview", "full"):
+            return jsonify({"error": "scope must be preview or full"}), 400
+        dpi = max(72, min(600, int(request.args.get("dpi", 300))))
+        width_in = max(2.0, min(16.0, float(request.args.get("width_in", 8.0))))
+        height_in = max(2.0, min(16.0, float(request.args.get("height_in", 6.0))))
+        view_distance_in = max(4.0, min(72.0, float(request.args.get("view_distance_in", 20.0))))
+        eye_height_in = max(4.0, min(72.0, float(request.args.get("eye_height_in", 14.0))))
+        ipd_mm = max(45.0, min(80.0, float(request.args.get("ipd_mm", 63.0))))
+        relief_mm = max(0.0, min(100.0, float(request.args.get("relief_mm", 35.0))))
+        glasses = request.args.get("glasses", "red-cyan").lower()
+        if glasses not in ("red-cyan", "red-green", "red-blue"):
+            return jsonify({"error": "glasses must be red-cyan, red-green, or red-blue"}), 400
+        reverse_depth = request.args.get("reverse_depth", "false").lower() == "true"
+
+        image, depth = source_and_depth("full")
+        full_w = max(300, int(round(width_in * dpi)))
+        full_h = max(300, int(round(height_in * dpi)))
+        if scope == "preview":
+            scale = min(1.0, 1200.0 / max(full_w, full_h))
+            output_w = max(300, int(round(full_w * scale)))
+            output_h = max(300, int(round(full_h * scale)))
+        else:
+            output_w, output_h = full_w, full_h
+        image, depth = fit_to_print(image, depth, output_w, output_h)
+        output, _, _ = render_phantogram(
+            image,
+            depth,
+            print_width_mm=width_in * 25.4,
+            print_height_mm=height_in * 25.4,
+            view_distance_mm=view_distance_in * 25.4,
+            eye_height_mm=eye_height_in * 25.4,
+            ipd_mm=ipd_mm,
+            relief_mm=relief_mm,
+            glasses=glasses,
+            reverse_depth=reverse_depth,
+        )
+        if scope == "full":
+            pil = Image.fromarray(cv2.cvtColor(output, cv2.COLOR_BGR2RGB))
+            return send_pil_png(pil, f"phantogram-{glasses}-{width_in:g}x{height_in:g}in.png", dpi, True)
+        return send_cv_image(output, f"phantogram-{glasses}", "png", 100, False)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/phantogram/calibration", methods=["GET"])
+def phantogram_calibration():
+    try:
+        dpi = max(72, min(1200, int(request.args.get("dpi", 300))))
+        return send_pil_png(calibration_ruler(dpi), "phantogram-100mm-print-check.png", dpi, True)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
