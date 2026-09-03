@@ -62,7 +62,7 @@ export const defaultTechniqueSettings: TechniqueSettings = {
         title: 'STEREOSCOPIC VIEW',
         caption: 'Generated from a single photograph',
         publisher: 'Anaglyph & Friends',
-        cardTone: 'cream',
+        cardTone: 'white',
     },
     wiggle: { frames: 7, duration: 75 },
     autostereogram: { separation: 8, depthStrength: 2.3, dotSize: 3, viewing: 'parallel', color: false, guides: true, patternRevision: 0 },
@@ -111,11 +111,13 @@ export function mergeStoredSettings(raw: string | null): TechniqueSettings {
         if (parsed.wiggle?.duration === 130) storedWiggle.duration = defaultTechniqueSettings.wiggle.duration;
         const storedAnaglyph = { ...defaultTechniqueSettings.anaglyph, ...(parsed.anaglyph || {}) };
         if (typeof storedAnaglyph.colorMode === 'number') storedAnaglyph.colorMode = String(storedAnaglyph.colorMode);
+        const storedStereoscope = { ...defaultTechniqueSettings.stereoscope, ...(parsed.stereoscope || {}) };
+        if (storedStereoscope.cardTone === 'cream' || storedStereoscope.cardTone === 'tan') storedStereoscope.cardTone = 'white';
         return {
             anaglyph: storedAnaglyph,
             chromadepth: { ...defaultTechniqueSettings.chromadepth, ...(parsed.chromadepth || {}) },
             cardboard: { ...defaultTechniqueSettings.cardboard, ...(parsed.cardboard || {}) },
-            stereoscope: { ...defaultTechniqueSettings.stereoscope, ...(parsed.stereoscope || {}) },
+            stereoscope: storedStereoscope,
             wiggle: storedWiggle,
             autostereogram: { ...defaultTechniqueSettings.autostereogram, ...(parsed.autostereogram || {}) },
             lenticular: { ...defaultTechniqueSettings.lenticular, ...(parsed.lenticular || {}) },
