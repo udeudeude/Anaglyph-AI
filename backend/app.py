@@ -12,6 +12,8 @@ import numpy as np
 from depth_map_generator import depth_map_generator
 from anaglyph_generator import anaglyph_generator
 from technique_generator import technique_generator
+from depth_sources import align_depth, load_depth_upload
+from stereo_formats import compatibility_stereo, make_anaglyph
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from werkzeug.utils import send_from_directory
@@ -61,6 +63,17 @@ def clear_session_products():
                 pass
 
 
+def clear_stereo_cache():
+    for suffix in (
+        "preview_left.png", "preview_right.png", "preview_stereo.json",
+        "full_left.png", "full_right.png", "full_stereo.json",
+    ):
+        try:
+            os.remove(session_path(suffix))
+        except FileNotFoundError:
+            pass
+
+
 def clear_old_session_files():
     current_time = time.time()
     session_files_cleared = 0
@@ -82,6 +95,10 @@ def parse_render_parameters():
     max_disparity_percentage = float(request.args.get("max_disparity_percentage", default=2))
     max_disparity_percentage = max(0.0, min(6.0, max_disparity_percentage))
     return pop_out, max_disparity_percentage
+
+
+def parse_swap_eyes():
+    return request.args.get("swap_eyes", default="false").lower() == "true"
 
 
 def resize_image_and_depth(image, depth_map, max_dimension):
@@ -171,28 +188,37 @@ def upload_pattern():
         return jsonify({"error": str(e)}), 400
 
 
+def save_active_depth(depth_map):
+    depth_map = np.clip(depth_map, 0.0, 1.0).astype(np.float32)
+    np.save(session_path("depth_map.npy"), depth_map, allow_pickle=False)
+    coloured = depth_map_generator.colour_depth_map(depth_map)
+    coloured_preview, _ = resize_image_and_depth(coloured, depth_map, PREVIEW_MAX_DIMENSION)
+    cv2.imwrite(session_path("depth_map_coloured.jpg"), coloured_preview, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+    gray16 = np.round(depth_map * 65535.0).astype(np.uint16)
+    cv2.imwrite(session_path("depth_map_gray16.png"), gray16)
+    clear_stereo_cache()
+
+
+def get_ai_depth():
+    ai_path = session_path("depth_map_ai.npy")
+    if os.path.exists(ai_path):
+        return np.load(ai_path, allow_pickle=False).astype(np.float32)
+    image = cv2.imread(session_path("image.png"))
+    if image is None:
+        raise FileNotFoundError("No uploaded source image is available")
+    depth_map = depth_map_generator.generate_depth_map(image)
+    depth_map = np.clip(depth_map_generator.blur_depth_map(depth_map, KERNEL_WIDTH), 0.0, 1.0).astype(np.float32)
+    np.save(ai_path, depth_map, allow_pickle=False)
+    return depth_map
+
+
 def ensure_depth_maps():
     depth_path = session_path("depth_map.npy")
     coloured_path = session_path("depth_map_coloured.jpg")
     gray16_path = session_path("depth_map_gray16.png")
     if os.path.exists(depth_path) and os.path.exists(coloured_path) and os.path.exists(gray16_path):
         return
-
-    image_path = session_path("image.png")
-    image = cv2.imread(image_path)
-    if image is None:
-        raise FileNotFoundError("No uploaded source image is available")
-
-    depth_map = depth_map_generator.generate_depth_map(image)
-    depth_map_blurred = np.clip(depth_map_generator.blur_depth_map(depth_map, KERNEL_WIDTH), 0.0, 1.0).astype(np.float32)
-    np.save(depth_path, depth_map_blurred, allow_pickle=False)
-
-    coloured = depth_map_generator.colour_depth_map(depth_map_blurred)
-    coloured_preview, _ = resize_image_and_depth(coloured, depth_map_blurred, PREVIEW_MAX_DIMENSION)
-    cv2.imwrite(coloured_path, coloured_preview, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
-
-    gray16 = np.round(depth_map_blurred * 65535.0).astype(np.uint16)
-    cv2.imwrite(gray16_path, gray16)
+    save_active_depth(get_ai_depth())
 
 
 @app.route("/depth-map", methods=["GET"])
@@ -200,6 +226,63 @@ def get_depth_map():
     try:
         ensure_depth_maps()
         return send_from_directory(SESSION_DATA_FOLDER, os.path.basename(session_path("depth_map_coloured.jpg")), request.environ)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/depth-map/import", methods=["POST"])
+def import_depth_map():
+    if "file" not in request.files:
+        return jsonify({"error": "No depth map file"}), 400
+    try:
+        source = cv2.imread(session_path("image.png"))
+        if source is None:
+            raise FileNotFoundError("Upload a source image before importing a depth map")
+        imported = load_depth_upload(request.files["file"])
+        np.save(session_path("depth_map_import.npy"), imported, allow_pickle=False)
+        mode = request.form.get("mode", "crop").lower()
+        invert = request.form.get("invert", "false").lower() == "true"
+        aligned = align_depth(imported, source.shape[1], source.shape[0], mode)
+        if invert:
+            aligned = 1.0 - aligned
+        save_active_depth(aligned)
+        return jsonify({
+            "success": True,
+            "depth_width": int(imported.shape[1]),
+            "depth_height": int(imported.shape[0]),
+            "source_width": int(source.shape[1]),
+            "source_height": int(source.shape[0]),
+            "mode": mode,
+            "invert": invert,
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/depth-map/source", methods=["POST"])
+def set_depth_source():
+    try:
+        payload = request.get_json(silent=True) or request.form
+        source_name = str(payload.get("source", "ai")).lower()
+        mode = str(payload.get("mode", "crop")).lower()
+        invert = str(payload.get("invert", "false")).lower() == "true"
+        source = cv2.imread(session_path("image.png"))
+        if source is None:
+            raise FileNotFoundError("No uploaded source image is available")
+        if source_name == "ai":
+            depth = get_ai_depth()
+        elif source_name == "imported":
+            import_path = session_path("depth_map_import.npy")
+            if not os.path.exists(import_path):
+                return jsonify({"error": "No imported depth map is available"}), 404
+            imported = np.load(import_path, allow_pickle=False).astype(np.float32)
+            depth = align_depth(imported, source.shape[1], source.shape[0], mode)
+        else:
+            return jsonify({"error": "source must be ai or imported"}), 400
+        if invert:
+            depth = 1.0 - depth
+        save_active_depth(depth)
+        return jsonify({"success": True, "source": source_name, "mode": mode, "invert": invert}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
@@ -276,6 +359,15 @@ def ensure_stereo_pair(scope, pop_out, max_disparity_percentage):
     return paths
 
 
+def stereo_arrays(scope, pop_out, strength, swap_eyes=False):
+    paths = ensure_stereo_pair(scope, pop_out, strength)
+    left = cv2.imread(paths["left"])
+    right = cv2.imread(paths["right"])
+    if left is None or right is None:
+        raise FileNotFoundError("Stereo render cache is unavailable")
+    return (right, left) if swap_eyes else (left, right)
+
+
 @app.route("/render", methods=["GET"])
 def render_preview_stereo():
     try:
@@ -300,12 +392,8 @@ def prepare_full_stereo():
         return jsonify({"error": str(e)}), 400
 
 
-def build_output(kind, scope, pop_out, strength, optimised):
-    paths = ensure_stereo_pair(scope, pop_out, strength)
-    left_image = cv2.imread(paths["left"])
-    right_image = cv2.imread(paths["right"])
-    if left_image is None or right_image is None:
-        raise FileNotFoundError("Stereo render cache is unavailable")
+def build_output(kind, scope, pop_out, strength, optimised, swap_eyes=False, anaglyph_type="red-cyan", anaglyph_color="full"):
+    left_image, right_image = stereo_arrays(scope, pop_out, strength, swap_eyes)
 
     if kind == "left":
         return left_image
@@ -316,10 +404,12 @@ def build_output(kind, scope, pop_out, strength, optimised):
     if kind == "cross":
         return np.hstack((right_image, left_image))
     if kind == "anaglyph":
-        if optimised:
+        if optimised and anaglyph_type == "red-cyan" and anaglyph_color == "full":
             return anaglyph_generator.generate_optimised_RR_anaglyph(left_image, right_image)
-        return anaglyph_generator.generate_pure_anaglyph(left_image, right_image)
-    raise ValueError("kind must be anaglyph, parallel, cross, left, or right")
+        return make_anaglyph(left_image, right_image, anaglyph_type, anaglyph_color)
+    if kind in {"topbottom", "halfsbs", "rowinterlaced", "columninterlaced", "checkerboard"}:
+        return compatibility_stereo(left_image, right_image, kind)
+    raise ValueError("Unknown stereo output kind")
 
 
 @app.route("/output/<kind>", methods=["GET"])
@@ -328,18 +418,26 @@ def get_output(kind):
         scope = request.args.get("scope", "preview").lower()
         pop_out, strength = parse_render_parameters()
         optimised = request.args.get("optimised_RR_anaglyph", default="false").lower() == "true"
+        swap_eyes = parse_swap_eyes()
+        anaglyph_type = request.args.get("anaglyph_type", "red-cyan").lower()
+        anaglyph_color = request.args.get("anaglyph_color", "full").lower()
         output_format = request.args.get("format", "jpeg").lower()
         quality = int(request.args.get("quality", 95))
         download = request.args.get("download", "false").lower() == "true"
         if output_format not in ("jpeg", "jpg", "png"):
             return jsonify({"error": "format must be jpeg or png"}), 400
-        output = build_output(kind.lower(), scope, pop_out, strength, optimised)
+        output = build_output(kind.lower(), scope, pop_out, strength, optimised, swap_eyes, anaglyph_type, anaglyph_color)
         names = {
-            "anaglyph": "red-cyan-anaglyph",
+            "anaglyph": f"{anaglyph_type}-anaglyph",
             "parallel": "parallel-stereo",
             "cross": "cross-eyed-stereo",
             "left": "left-eye",
             "right": "right-eye",
+            "topbottom": "top-bottom-stereo",
+            "halfsbs": "half-width-side-by-side",
+            "rowinterlaced": "row-interlaced-stereo",
+            "columninterlaced": "column-interlaced-stereo",
+            "checkerboard": "checkerboard-stereo",
         }
         return send_cv_image(output, names.get(kind.lower(), kind.lower()), output_format, quality, download)
     except Exception as e:
@@ -364,9 +462,7 @@ def special_cardboard():
     try:
         scope = request.args.get("scope", "preview").lower()
         pop_out, strength = parse_render_parameters()
-        paths = ensure_stereo_pair(scope, pop_out, strength)
-        left = cv2.imread(paths["left"])
-        right = cv2.imread(paths["right"])
+        left, right = stereo_arrays(scope, pop_out, strength, parse_swap_eyes())
         output = technique_generator.cardboard(
             left, right,
             int(request.args.get("width", 1920)),
@@ -387,9 +483,7 @@ def special_stereoscope():
         scope = request.args.get("scope", "preview").lower()
         dpi = int(request.args.get("dpi", 300))
         render_dpi = min(dpi, 180) if scope == "preview" else dpi
-        paths = ensure_stereo_pair("preview" if scope == "preview" else "full", pop_out, strength)
-        left = cv2.imread(paths["left"])
-        right = cv2.imread(paths["right"])
+        left, right = stereo_arrays("preview" if scope == "preview" else "full", pop_out, strength, parse_swap_eyes())
         output = technique_generator.stereoscope_card(
             left, right,
             dpi=render_dpi,
@@ -424,7 +518,7 @@ def special_autostereogram():
             separation_percent=float(request.args.get("separation", 8.0)),
             depth_percent=float(request.args.get("depth_strength", 2.3)),
             dot_size=int(request.args.get("dot_size", 3)),
-            viewing=request.args.get("viewing", "parallel").lower(),
+            viewing=(request.args.get("viewing", "parallel").lower() + ("-guides" if request.args.get("guides", "true").lower() == "true" else "")),
             pattern=pattern,
             color=request.args.get("color", "false").lower() == "true",
         )
@@ -438,9 +532,11 @@ def special_wiggle():
     try:
         scope = request.args.get("scope", "preview").lower()
         pop_out, strength = parse_render_parameters()
-        image, depth = source_and_depth(scope, 1100 if scope == "preview" else 10000)
+        if parse_swap_eyes():
+            strength = -strength
+        image, depth = source_and_depth("preview", 1100)
         frame_count = int(request.args.get("frames", 7))
-        duration = max(40, min(1000, int(request.args.get("duration", 130))))
+        duration = max(40, min(1000, int(request.args.get("duration", 75))))
         frames = technique_generator.wiggle_frames(image, depth, frame_count, strength, pop_out)
         pil_frames = [Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)) for frame in frames]
         buffer = io.BytesIO()
@@ -456,6 +552,8 @@ def special_lenticular():
     try:
         scope = request.args.get("scope", "preview").lower()
         pop_out, strength = parse_render_parameters()
+        if parse_swap_eyes():
+            strength = -strength
         dpi = int(request.args.get("dpi", 600))
         lpi = float(request.args.get("lpi", 60.0))
         width_in = float(request.args.get("width_in", 6.0))
