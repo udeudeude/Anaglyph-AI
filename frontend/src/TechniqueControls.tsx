@@ -7,7 +7,7 @@ type Props = {
     technique: TechniqueId;
     settings: TechniqueSettings;
     setSettings: (settings: TechniqueSettings) => void;
-    onApply: () => void;
+    onApply: (settings?: TechniqueSettings) => void;
     dirty: boolean;
     disabled: boolean;
     apiUrl: string;
@@ -62,6 +62,18 @@ function TechniqueControls({ technique, settings, setSettings, onApply, dirty, d
         }
     };
 
+    const rebuildRandomDots = () => {
+        const next: TechniqueSettings = {
+            ...settings,
+            autostereogram: {
+                ...settings.autostereogram,
+                patternRevision: settings.autostereogram.patternRevision + 1,
+            },
+        };
+        setSettings(next);
+        onApply(next);
+    };
+
     const calibrationUrl = () => {
         const s = settings.lenticular;
         const params = new URLSearchParams({
@@ -75,12 +87,23 @@ function TechniqueControls({ technique, settings, setSettings, onApply, dirty, d
 
     if (technique === 'anaglyph') {
         const s = settings.anaglyph;
+        const colorAmount = s.colorMode === 'full' ? 100 : s.colorMode === 'half' ? 50 : s.colorMode === 'gray' ? 0 : Math.max(0, Math.min(100, numberValue(s.colorMode, 100)));
+        const setColorAmount = (amount: number) => update('anaglyph', { colorMode: amount >= 100 ? 'full' : amount <= 0 ? 'gray' : String(Math.round(amount)) });
+        const colorLabel = colorAmount === 100 ? 'Full color' : colorAmount === 0 ? 'Grayscale' : colorAmount === 50 ? 'Half color' : `${colorAmount}% color`;
         body = <>
-            <div className="techniqueGrid two">
+            <div className="techniqueGrid two anaglyphSettingsGrid">
                 <label><span>Glasses / filter pair</span><select value={s.glasses} onChange={(e) => update('anaglyph', { glasses: e.target.value as typeof s.glasses })}><option value="red-cyan">Red / Cyan</option><option value="red-green">Red / Green</option><option value="red-blue">Red / Blue</option></select></label>
-                <label><span>Color rendering</span><select value={s.colorMode} onChange={(e) => update('anaglyph', { colorMode: e.target.value as typeof s.colorMode })}><option value="full">Full color</option><option value="half">Half color</option><option value="gray">Grayscale</option></select></label>
+                <div className="colorRenderField">
+                    <span>Color rendering</span>
+                    <div className="colorRenderSlider">
+                        <button type="button" onClick={() => setColorAmount(0)} className={colorAmount === 0 ? 'active' : ''}>Grayscale</button>
+                        <input type="range" min="0" max="100" step="1" value={colorAmount} onChange={(e) => setColorAmount(Number(e.target.value))} aria-label="Anaglyph color rendering" />
+                        <button type="button" onClick={() => setColorAmount(100)} className={colorAmount === 100 ? 'active' : ''}>Full color</button>
+                    </div>
+                    <small>{colorLabel}</small>
+                </div>
             </div>
-            <p className="techniqueHint">Red/cyan remains the modern default. Red/green and red/blue support older glasses and historical anaglyph material. Half color uses luminance for the red eye to reduce strong red-object conflicts while retaining more color in the other eye.</p>
+            <p className="techniqueHint">Slide continuously from grayscale to full color. The midpoint reproduces the previous half-color treatment, while the two end buttons jump directly to grayscale or full color.</p>
         </>;
     }
 
@@ -156,6 +179,7 @@ function TechniqueControls({ technique, settings, setSettings, onApply, dirty, d
                 {technique === 'randomdot' && <label><span>Dot size</span><input type="number" min="1" max="12" value={s.dotSize} onChange={(e) => update('autostereogram', { dotSize: numberValue(e.target.value, 3) })} /><small>pixels at preview scale</small></label>}
                 {technique === 'randomdot' && <label className="checkField"><span>Dot palette</span><div><input type="checkbox" checked={s.color} onChange={(e) => update('autostereogram', { color: e.target.checked })} /> Use colored dots</div></label>}
             </div>
+            {technique === 'randomdot' && <div className="randomDotActions"><button type="button" onClick={rebuildRandomDots} disabled={disabled}>Build a new random-dot pattern</button><span>Try another seed pattern without changing the depth or viewing settings.</span></div>}
             {technique === 'pattern' && <div className="patternUpload"><label>Custom repeating pattern<input type="file" accept="image/*" onChange={uploadPattern} /></label><span>{patternStatus || 'Optional. A built-in houndstooth texture is used until you upload one.'}</span></div>}
             <p className="techniqueHint">These are single-image autostereograms. The two guide dots are separated by one base pattern repeat. Fuse them into a central dot using the selected viewing method.</p>
         </>;
@@ -189,7 +213,7 @@ function TechniqueControls({ technique, settings, setSettings, onApply, dirty, d
     if (!body) return null;
 
     return <section className="techniqueSettings">
-        <div className="techniqueSettingsHeader"><div><span className="panelLabel">TECHNIQUE SETTINGS</span><strong>Settings for this viewing method</strong></div><button className={dirty ? 'applyTechnique dirty' : 'applyTechnique'} onClick={onApply} disabled={disabled || !dirty}>{dirty ? 'Apply settings' : 'Settings applied'}</button></div>
+        <div className="techniqueSettingsHeader"><div><span className="panelLabel">TECHNIQUE SETTINGS</span><strong>Settings for this viewing method</strong></div><button className={dirty ? 'applyTechnique dirty' : 'applyTechnique'} onClick={() => onApply()} disabled={disabled || !dirty}>{dirty ? 'Apply settings' : 'Settings applied'}</button></div>
         {body}
     </section>;
 }
