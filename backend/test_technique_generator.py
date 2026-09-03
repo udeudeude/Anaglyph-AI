@@ -29,11 +29,18 @@ def main():
     card = technique_generator.stereoscope_card(view, view, dpi=72)
     assert card.ndim == 3 and card.shape[2] == 3
 
-    random_dot = technique_generator.autostereogram(depth, style='random', separation_percent=10, depth_percent=2, dot_size=2)
-    assert random_dot.shape == image.shape
+    parallel = technique_generator.autostereogram(depth, style='random', separation_percent=10, depth_percent=2, dot_size=2, viewing='parallel')
+    cross = technique_generator.autostereogram(depth, style='random', separation_percent=10, depth_percent=2, dot_size=2, viewing='cross')
+    assert parallel.shape == image.shape
+    assert cross.shape == image.shape
+    assert not np.array_equal(parallel, cross)
+
+    guided = technique_generator.autostereogram(depth, style='random', separation_percent=10, depth_percent=2, dot_size=2, viewing='parallel-guides')
+    assert guided.shape[0] > image.shape[0] and guided.shape[1:] == image.shape[1:]
 
     patterned = technique_generator.autostereogram(depth, style='pattern', separation_percent=10, depth_percent=2)
     assert patterned.shape == image.shape
+    assert np.unique(patterned.reshape(-1, 3), axis=0).shape[0] > 2
 
     frames = technique_generator.wiggle_frames(image, depth, frame_count=5, strength=2.0)
     assert len(frames) == 8
