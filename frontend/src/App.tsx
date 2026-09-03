@@ -3,7 +3,6 @@ import ImageUpload from './ImageUpload.tsx'
 import { useEffect, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import AnaglyphEditor from './AnaglyphEditor.tsx'
-import Footer from './Footer.tsx'
 
 type ProcessingStage = 'idle' | 'uploading' | 'depth' | 'stereo' | 'technique' | 'full' | 'ready' | 'error'
 
@@ -86,8 +85,6 @@ function App() {
                     />
                 </section>
             </main>
-
-            <Footer />
         </div>
     )
 }
