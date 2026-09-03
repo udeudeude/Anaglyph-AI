@@ -101,7 +101,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
         }
         if (technique === 'randomdot' || technique === 'pattern') {
             const s = appliedSettings.autostereogram;
-            return `${apiUrl}/special/autostereogram?${new URLSearchParams({...base, style: technique === 'pattern' ? 'pattern' : 'random', separation: String(s.separation), depth_strength: String(s.depthStrength), dot_size: String(s.dotSize), viewing: s.viewing, guides: String(s.guides), color: String(s.color)}).toString()}`;
+            return `${apiUrl}/special/autostereogram?${new URLSearchParams({...base, style: technique === 'pattern' ? 'pattern' : 'random', separation: String(s.separation), depth_strength: String(s.depthStrength), dot_size: String(s.dotSize), viewing: s.viewing, guides: String(s.guides), color: String(s.color), revision: String(s.patternRevision)}).toString()}`;
         }
         if (technique === 'lenticular') {
             const s = appliedSettings.lenticular;
@@ -173,7 +173,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
     useEffect(() => { localStorage.setItem('aaf-jpeg-quality', String(jpegQuality)); }, [jpegQuality]);
     useEffect(() => { localStorage.setItem('aaf-technique-settings', JSON.stringify(draftSettings)); }, [draftSettings]);
 
-    const applyTechniqueSettings = () => setAppliedSettings(cloneSettings(draftSettings));
+    const applyTechniqueSettings = (settings?: TechniqueSettings) => setAppliedSettings(cloneSettings(settings || draftSettings));
     const fullscreen = () => previewRef.current?.requestFullscreen?.();
 
     const selectCoreTechnique = (technique: TechniqueId) => {
@@ -315,6 +315,22 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
     const showTechniqueSettings = activeTechnique === 'anaglyph' || specialSelected;
     const showRetinalRivalry = activeTechnique === 'anaglyph' && appliedSettings.anaglyph.glasses === 'red-cyan' && appliedSettings.anaglyph.colorMode === 'full';
 
+    const genericSettings = (fullscreenMode = false) => <div className={`settingsCard ${usesStereo ? '' : 'nonStereo'} ${fullscreenMode ? 'fullscreenSettingsCard' : ''}`}>
+        {usesStereo && <div className="settingGroup">
+            <div className="settingTitle"><span>3D strength</span><strong>{sliderValue.toFixed(1)}%</strong></div>
+            <input type="range" min="0" max="6" step="0.1" value={sliderValue} disabled={!isChangeAllowed} onChange={(e) => setSliderValue(parseFloat(e.target.value))} onPointerUp={() => isChangeAllowed && setAppliedStrength(sliderValue)} onKeyUp={() => isChangeAllowed && setAppliedStrength(sliderValue)} />
+            <div className="rangeLabels"><span>Subtle</span><span>{sliderValue !== appliedStrength ? 'Release to apply' : 'Strong'}</span></div>
+        </div>}
+        <div className="settingGroup">
+            <div className="settingTitle"><span>On-screen preview size</span><strong>{viewScale}%</strong></div>
+            <input type="range" min="35" max="100" step="1" value={viewScale} onChange={(e) => setViewScale(parseInt(e.target.value))} />
+            <div className="rangeLabels"><span>Smaller</span><span>Fill stage</span></div>
+        </div>
+        {usesStereo && <label className="toggleSetting"><span><strong>Pop out</strong><small>Place depth in front of screen</small></span><input type="checkbox" checked={popOut} disabled={!isChangeAllowed} onChange={(e) => setPopOut(e.target.checked)} /></label>}
+        {usesEyeOrder && <label className="toggleSetting"><span><strong>Swap left / right</strong><small>Reverse eye order without regenerating depth</small></span><input type="checkbox" checked={swapEyes} disabled={!isChangeAllowed} onChange={(e) => setSwapEyes(e.target.checked)} /></label>}
+        {showRetinalRivalry && <label className="toggleSetting"><span><strong>Reduce retinal rivalry</strong><small>Optimized full-color red/cyan only</small></span><input type="checkbox" checked={optimiseRRAnaglyph} disabled={!isChangeAllowed} onChange={(e) => setOptimiseRRAnaglyph(e.target.checked)} /></label>}
+    </div>;
+
     return (
         <div className="editorWorkspace">
             <div className="editorHeader">
@@ -335,6 +351,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
                     <optgroup label="Animation"><option value="wiggle">Wiggle-gram</option></optgroup>
                     <optgroup label="Autostereograms"><option value="randomdot">Random-Dot Stereogram</option><option value="pattern">Pattern Stereogram</option></optgroup>
                     <optgroup label="Print"><option value="lenticular">Lenticular 3D</option></optgroup>
+                    <option className="techniqueMenuDivider" value="__divider__" disabled>────────────</option>
                     <option value="__compatibility__">Even more techniques…</option>
                 </select>
                 {(compatibilityMenuOpen || compatibilitySelected) && <select className={compatibilitySelected ? 'compatibilityTechniques active' : 'compatibilityTechniques'} value={compatibilitySelected ? activeTechnique : ''} onChange={(e) => setActiveTechnique(e.target.value as TechniqueId)}>
@@ -353,6 +370,15 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
                     <div className="emptyStage"><div className="stereoGlyph">◉ ◉</div><strong>Your 3D result will appear here</strong><span>Drop, choose, or paste an image in the source panel.</span></div>
                 )}
                 {outputsAreLoading && <div className="loadingVeil"><div className="largeLoader" /><span>Rendering {info.label}…</span></div>}
+                <div className="fullscreenHotZone" aria-hidden="true" />
+                <div className="fullscreenDock" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                    <div className="fullscreenDockHeader">
+                        <div><strong>{info.label}</strong><span>Move the pointer above this panel to hide it.</span></div>
+                        <button className="downloadAction" onClick={() => void downloadCurrent()} disabled={!previewUrl || fullPreparing}>{fullPreparing ? <><span className="buttonLoader" /> Preparing…</> : <>Download <kbd>D</kbd></>}</button>
+                    </div>
+                    {genericSettings(true)}
+                    {showTechniqueSettings && <TechniqueControls technique={activeTechnique} settings={draftSettings} setSettings={setDraftSettings} onApply={applyTechniqueSettings} dirty={techniqueDirty} disabled={!isChangeAllowed} apiUrl={apiUrl} />}
+                </div>
             </div>
 
             <div className="previewMeta">
@@ -364,21 +390,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
                 </div>
             </div>
 
-            <div className={`settingsCard ${usesStereo ? '' : 'nonStereo'}`}>
-                {usesStereo && <div className="settingGroup">
-                    <div className="settingTitle"><span>3D strength</span><strong>{sliderValue.toFixed(1)}%</strong></div>
-                    <input type="range" min="0" max="6" step="0.1" value={sliderValue} disabled={!isChangeAllowed} onChange={(e) => setSliderValue(parseFloat(e.target.value))} onPointerUp={() => isChangeAllowed && setAppliedStrength(sliderValue)} onKeyUp={() => isChangeAllowed && setAppliedStrength(sliderValue)} />
-                    <div className="rangeLabels"><span>Subtle</span><span>{sliderValue !== appliedStrength ? 'Release to apply' : 'Strong'}</span></div>
-                </div>}
-                <div className="settingGroup">
-                    <div className="settingTitle"><span>On-screen preview size</span><strong>{viewScale}%</strong></div>
-                    <input type="range" min="35" max="100" step="1" value={viewScale} onChange={(e) => setViewScale(parseInt(e.target.value))} />
-                    <div className="rangeLabels"><span>Smaller</span><span>Fill stage</span></div>
-                </div>
-                {usesStereo && <label className="toggleSetting"><span><strong>Pop out</strong><small>Place depth in front of screen</small></span><input type="checkbox" checked={popOut} disabled={!isChangeAllowed} onChange={(e) => setPopOut(e.target.checked)} /></label>}
-                {usesEyeOrder && <label className="toggleSetting"><span><strong>Swap left / right</strong><small>Reverse eye order without regenerating depth</small></span><input type="checkbox" checked={swapEyes} disabled={!isChangeAllowed} onChange={(e) => setSwapEyes(e.target.checked)} /></label>}
-                {showRetinalRivalry && <label className="toggleSetting"><span><strong>Reduce retinal rivalry</strong><small>Optimized full-color red/cyan only</small></span><input type="checkbox" checked={optimiseRRAnaglyph} disabled={!isChangeAllowed} onChange={(e) => setOptimiseRRAnaglyph(e.target.checked)} /></label>}
-            </div>
+            {genericSettings()}
 
             {showTechniqueSettings && <TechniqueControls technique={activeTechnique} settings={draftSettings} setSettings={setDraftSettings} onApply={applyTechniqueSettings} dirty={techniqueDirty} disabled={!isChangeAllowed} apiUrl={apiUrl} />}
 
