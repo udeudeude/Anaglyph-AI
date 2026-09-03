@@ -19,8 +19,17 @@ type Props = {
     setProcessingStage: (stage: ProcessingStage) => void;
 };
 
-const allTechniques = new Set<TechniqueId>(['anaglyph', 'parallel', 'cross', 'chromadepth', 'cardboard', 'stereoscope', 'wiggle', 'randomdot', 'pattern', 'lenticular']);
-const basicTechniques = new Set<TechniqueId>(['anaglyph', 'parallel', 'cross']);
+const coreTechniques = new Set<TechniqueId>(['anaglyph', 'parallel', 'cross']);
+const compatibilityTechniques = new Set<TechniqueId>(['topbottom', 'halfsbs', 'rowinterlaced', 'columninterlaced', 'checkerboard']);
+const directOutputTechniques = new Set<TechniqueId>([...coreTechniques, ...compatibilityTechniques]);
+const allTechniques = new Set<TechniqueId>([
+    ...directOutputTechniques,
+    'chromadepth', 'cardboard', 'stereoscope', 'wiggle', 'randomdot', 'pattern', 'lenticular',
+]);
+const eyeOrderTechniques = new Set<TechniqueId>([
+    ...directOutputTechniques,
+    'cardboard', 'stereoscope', 'lenticular',
+]);
 
 const readNumber = (key: string, fallback: number) => {
     const raw = localStorage.getItem(key);
@@ -40,6 +49,10 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
         const saved = localStorage.getItem('aaf-technique') as TechniqueId | null;
         return saved && allTechniques.has(saved) ? saved : 'anaglyph';
     });
+    const [compatibilityMenuOpen, setCompatibilityMenuOpen] = useState(() => {
+        const saved = localStorage.getItem('aaf-technique') as TechniqueId | null;
+        return !!saved && compatibilityTechniques.has(saved);
+    });
     const initialSettings = mergeStoredSettings(localStorage.getItem('aaf-technique-settings'));
     const [draftSettings, setDraftSettings] = useState<TechniqueSettings>(() => cloneSettings(initialSettings));
     const [appliedSettings, setAppliedSettings] = useState<TechniqueSettings>(() => cloneSettings(initialSettings));
@@ -48,6 +61,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
     const [fullPreparing, setFullPreparing] = useState(false);
     const [hasRendered, setHasRendered] = useState(false);
     const [popOut, setPopOut] = useState(() => localStorage.getItem('aaf-pop-out') === 'true');
+    const [swapEyes, setSwapEyes] = useState(() => localStorage.getItem('aaf-swap-eyes') === 'true');
     const [appliedStrength, setAppliedStrength] = useState(() => readNumber('aaf-strength', 2));
     const [sliderValue, setSliderValue] = useState(() => readNumber('aaf-strength', 2));
     const [optimiseRRAnaglyph, setOptimiseRRAnaglyph] = useState(() => localStorage.getItem('aaf-retinal-rivalry') === 'true');
@@ -65,6 +79,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
             scope,
             pop_out: String(popOut),
             max_disparity_percentage: String(appliedStrength),
+            swap_eyes: String(swapEyes),
             format: downloadFormat,
             quality: String(jpegQuality),
         };
@@ -86,8 +101,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
         }
         if (technique === 'randomdot' || technique === 'pattern') {
             const s = appliedSettings.autostereogram;
-            const viewing = `${s.viewing}-${s.guides ? 'guides' : 'plain'}`;
-            return `${apiUrl}/special/autostereogram?${new URLSearchParams({...base, style: technique === 'pattern' ? 'pattern' : 'random', separation: String(s.separation), depth_strength: String(s.depthStrength), dot_size: String(s.dotSize), viewing, color: String(s.color)}).toString()}`;
+            return `${apiUrl}/special/autostereogram?${new URLSearchParams({...base, style: technique === 'pattern' ? 'pattern' : 'random', separation: String(s.separation), depth_strength: String(s.depthStrength), dot_size: String(s.dotSize), viewing: s.viewing, guides: String(s.guides), color: String(s.color)}).toString()}`;
         }
         if (technique === 'lenticular') {
             const s = appliedSettings.lenticular;
@@ -96,14 +110,17 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
         throw new Error(`No special renderer for ${technique}`);
     };
 
-    const basicUrl = (technique: TechniqueId, scope: 'preview' | 'full') => {
+    const directUrl = (technique: TechniqueId, scope: 'preview' | 'full') => {
         const params = new URLSearchParams({
             scope,
             format: downloadFormat,
             quality: String(jpegQuality),
             pop_out: String(popOut),
             max_disparity_percentage: String(appliedStrength),
+            swap_eyes: String(swapEyes),
             optimised_RR_anaglyph: String(optimiseRRAnaglyph),
+            anaglyph_type: appliedSettings.anaglyph.glasses,
+            anaglyph_color: appliedSettings.anaglyph.colorMode,
         });
         return `${apiUrl}/output/${technique}?${params.toString()}`;
     };
@@ -112,13 +129,13 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
         if (!isDepthMapReady) return;
         setOutputsAreLoading(true);
         setIsChangeAllowed(false);
-        setProcessingStage(basicTechniques.has(activeTechnique) ? 'stereo' : 'technique');
+        setProcessingStage(directOutputTechniques.has(activeTechnique) ? 'stereo' : 'technique');
         try {
             let url: string;
-            if (basicTechniques.has(activeTechnique)) {
+            if (directOutputTechniques.has(activeTechnique)) {
                 const renderResponse = await fetch(`${apiUrl}/render?${renderParams()}`, { method: 'GET', credentials: 'include' });
                 if (!renderResponse.ok) throw new Error(`Stereo render failed with status ${renderResponse.status}`);
-                url = basicUrl(activeTechnique, 'preview');
+                url = directUrl(activeTechnique, 'preview');
             } else {
                 url = specialUrl(activeTechnique, 'preview');
             }
@@ -138,7 +155,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
         }
     };
 
-    useEffect(() => { if (isDepthMapReady) void renderActivePreview(); }, [isDepthMapReady, activeTechnique, popOut, appliedStrength, optimiseRRAnaglyph, appliedSettings]);
+    useEffect(() => { if (isDepthMapReady) void renderActivePreview(); }, [isDepthMapReady, activeTechnique, popOut, swapEyes, appliedStrength, optimiseRRAnaglyph, appliedSettings]);
     useEffect(() => {
         if (!isDepthMapReady) {
             setHasRendered(false);
@@ -148,6 +165,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
 
     useEffect(() => { localStorage.setItem('aaf-technique', activeTechnique); setZoom(1); setPan({x: 0, y: 0}); }, [activeTechnique]);
     useEffect(() => { localStorage.setItem('aaf-pop-out', String(popOut)); }, [popOut]);
+    useEffect(() => { localStorage.setItem('aaf-swap-eyes', String(swapEyes)); }, [swapEyes]);
     useEffect(() => { localStorage.setItem('aaf-strength', String(appliedStrength)); }, [appliedStrength]);
     useEffect(() => { localStorage.setItem('aaf-retinal-rivalry', String(optimiseRRAnaglyph)); }, [optimiseRRAnaglyph]);
     useEffect(() => { localStorage.setItem('aaf-view-scale', String(viewScale)); }, [viewScale]);
@@ -157,6 +175,20 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
 
     const applyTechniqueSettings = () => setAppliedSettings(cloneSettings(draftSettings));
     const fullscreen = () => previewRef.current?.requestFullscreen?.();
+
+    const selectCoreTechnique = (technique: TechniqueId) => {
+        setCompatibilityMenuOpen(false);
+        setActiveTechnique(technique);
+    };
+
+    const selectMoreTechnique = (value: string) => {
+        if (value === '__compatibility__') {
+            setCompatibilityMenuOpen(true);
+            return;
+        }
+        setCompatibilityMenuOpen(false);
+        setActiveTechnique(value as TechniqueId);
+    };
 
     const triggerBlobDownload = (blob: Blob, filename: string) => {
         const url = URL.createObjectURL(blob);
@@ -172,9 +204,21 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
     const currentFilename = () => {
         const ext = activeTechnique === 'wiggle' ? 'gif' : (activeTechnique === 'stereoscope' || activeTechnique === 'lenticular' ? 'png' : downloadFormat === 'png' ? 'png' : 'jpg');
         const names: Record<TechniqueId, string> = {
-            anaglyph: 'red-cyan-anaglyph', parallel: 'parallel-stereo', cross: 'cross-eyed-stereo', chromadepth: 'chromadepth',
-            cardboard: 'cardboard-stereo', stereoscope: 'stereoscope-card', wiggle: 'wiggle-gram', randomdot: 'random-dot-stereogram',
-            pattern: 'pattern-stereogram', lenticular: 'lenticular-interlaced',
+            anaglyph: `${appliedSettings.anaglyph.glasses}-anaglyph`,
+            parallel: 'parallel-stereo',
+            cross: 'cross-eyed-stereo',
+            chromadepth: 'chromadepth',
+            cardboard: 'cardboard-stereo',
+            stereoscope: 'stereoscope-card',
+            wiggle: 'wiggle-gram',
+            randomdot: 'random-dot-stereogram',
+            pattern: 'pattern-stereogram',
+            lenticular: 'lenticular-interlaced',
+            topbottom: 'top-bottom-stereo',
+            halfsbs: 'half-width-side-by-side',
+            rowinterlaced: 'row-interlaced-stereo',
+            columninterlaced: 'column-interlaced-stereo',
+            checkerboard: 'checkerboard-stereo',
         };
         return `${names[activeTechnique]}.${ext}`;
     };
@@ -186,13 +230,11 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
         setProcessingStage('full');
         try {
             let url: string;
-            if (basicTechniques.has(activeTechnique)) {
+            if (directOutputTechniques.has(activeTechnique)) {
                 const prepare = await fetch(`${apiUrl}/prepare-full?${renderParams()}`, { method: 'GET', credentials: 'include' });
                 if (!prepare.ok) throw new Error(`Full-resolution stereo render failed: ${prepare.status}`);
-                url = basicUrl(activeTechnique, 'full');
+                url = directUrl(activeTechnique, 'full');
             } else {
-                // Huge full-resolution GIF frames often cannot be decoded at their requested timing.
-                // Wiggle exports therefore use the playback-optimized preview raster; static techniques remain full/final quality.
                 url = specialUrl(activeTechnique, activeTechnique === 'wiggle' ? 'preview' : 'full');
             }
             const response = await fetch(url, { method: 'GET', credentials: 'include' });
@@ -215,7 +257,10 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
         try {
             const prepare = await fetch(`${apiUrl}/prepare-full?${renderParams()}`, { method: 'GET', credentials: 'include' });
             if (!prepare.ok) throw new Error(`Full-resolution stereo render failed: ${prepare.status}`);
-            const params = new URLSearchParams({scope: 'full', format: downloadFormat, quality: String(jpegQuality), pop_out: String(popOut), max_disparity_percentage: String(appliedStrength)});
+            const params = new URLSearchParams({
+                scope: 'full', format: downloadFormat, quality: String(jpegQuality),
+                pop_out: String(popOut), max_disparity_percentage: String(appliedStrength), swap_eyes: String(swapEyes),
+            });
             const response = await fetch(`${apiUrl}/output/${kind}?${params.toString()}`, { credentials: 'include' });
             if (!response.ok) throw new Error(`Eye download failed: ${response.status}`);
             triggerBlobDownload(await response.blob(), `${kind}-eye.${downloadFormat === 'png' ? 'png' : 'jpg'}`);
@@ -234,15 +279,15 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
             const target = event.target as HTMLElement | null;
             if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
             const key = event.key.toLowerCase();
-            if (key === 'r') { event.preventDefault(); setActiveTechnique('anaglyph'); }
-            else if (key === 'v') { event.preventDefault(); setActiveTechnique('parallel'); }
-            else if (key === 'x') { event.preventDefault(); setActiveTechnique('cross'); }
+            if (key === 'r') { event.preventDefault(); selectCoreTechnique('anaglyph'); }
+            else if (key === 'v') { event.preventDefault(); selectCoreTechnique('parallel'); }
+            else if (key === 'x') { event.preventDefault(); selectCoreTechnique('cross'); }
             else if (key === 'f' && previewUrl) { event.preventDefault(); fullscreen(); }
             else if (key === 'd' && previewUrl) { event.preventDefault(); void downloadCurrent(); }
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [activeTechnique, previewUrl, isDepthMapReady, fullPreparing, downloadFormat, jpegQuality, popOut, appliedStrength, optimiseRRAnaglyph, appliedSettings]);
+    }, [activeTechnique, previewUrl, isDepthMapReady, fullPreparing, downloadFormat, jpegQuality, popOut, swapEyes, appliedStrength, optimiseRRAnaglyph, appliedSettings]);
 
     const zoomBy = (amount: number) => {
         const next = Math.max(1, Math.min(4, Number((zoom + amount).toFixed(2))));
@@ -262,9 +307,13 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
     const endPan = () => { dragRef.current = null; };
 
     const usesStereo = stereoBasedTechniques.has(activeTechnique);
+    const usesEyeOrder = eyeOrderTechniques.has(activeTechnique);
     const fixedFormat = activeTechnique === 'wiggle' ? 'GIF' : activeTechnique === 'stereoscope' || activeTechnique === 'lenticular' ? 'PNG' : null;
     const info = techniqueInfo[activeTechnique];
-    const specialSelected = !basicTechniques.has(activeTechnique);
+    const compatibilitySelected = compatibilityTechniques.has(activeTechnique);
+    const specialSelected = !coreTechniques.has(activeTechnique) && !compatibilitySelected;
+    const showTechniqueSettings = activeTechnique === 'anaglyph' || specialSelected;
+    const showRetinalRivalry = activeTechnique === 'anaglyph' && appliedSettings.anaglyph.glasses === 'red-cyan' && appliedSettings.anaglyph.colorMode === 'full';
 
     return (
         <div className="editorWorkspace">
@@ -275,18 +324,27 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
 
             <div className="techniqueChooser">
                 <div className="outputTabs">
-                    <button className={activeTechnique === 'anaglyph' ? 'outputTab active' : 'outputTab'} onClick={() => setActiveTechnique('anaglyph')}>Red/Cyan <kbd>R</kbd></button>
-                    <button className={activeTechnique === 'parallel' ? 'outputTab active' : 'outputTab'} onClick={() => setActiveTechnique('parallel')}>Parallel <kbd>V</kbd></button>
-                    <button className={activeTechnique === 'cross' ? 'outputTab active' : 'outputTab'} onClick={() => setActiveTechnique('cross')}>Cross-Eyed <kbd>X</kbd></button>
+                    <button className={activeTechnique === 'anaglyph' ? 'outputTab active' : 'outputTab'} onClick={() => selectCoreTechnique('anaglyph')}>Anaglyph <kbd>R</kbd></button>
+                    <button className={activeTechnique === 'parallel' ? 'outputTab active' : 'outputTab'} onClick={() => selectCoreTechnique('parallel')}>Parallel <kbd>V</kbd></button>
+                    <button className={activeTechnique === 'cross' ? 'outputTab active' : 'outputTab'} onClick={() => selectCoreTechnique('cross')}>Cross-Eyed <kbd>X</kbd></button>
                 </div>
-                <select className={specialSelected ? 'moreTechniques active' : 'moreTechniques'} value={specialSelected ? activeTechnique : ''} onChange={(e) => setActiveTechnique(e.target.value as TechniqueId)}>
+                <select className={specialSelected ? 'moreTechniques active' : 'moreTechniques'} value={specialSelected ? activeTechnique : ''} onChange={(e) => selectMoreTechnique(e.target.value)}>
                     <option value="" disabled>More techniques…</option>
                     <optgroup label="Glasses"><option value="chromadepth">ChromaDepth</option></optgroup>
                     <optgroup label="Viewers"><option value="cardboard">Cardboard / Phone Viewer</option><option value="stereoscope">Traditional Stereoscope Card</option></optgroup>
                     <optgroup label="Animation"><option value="wiggle">Wiggle-gram</option></optgroup>
                     <optgroup label="Autostereograms"><option value="randomdot">Random-Dot Stereogram</option><option value="pattern">Pattern Stereogram</option></optgroup>
                     <optgroup label="Print"><option value="lenticular">Lenticular 3D</option></optgroup>
+                    <option value="__compatibility__">Even more techniques…</option>
                 </select>
+                {(compatibilityMenuOpen || compatibilitySelected) && <select className={compatibilitySelected ? 'compatibilityTechniques active' : 'compatibilityTechniques'} value={compatibilitySelected ? activeTechnique : ''} onChange={(e) => setActiveTechnique(e.target.value as TechniqueId)}>
+                    <option value="" disabled>Display & compatibility…</option>
+                    <option value="halfsbs">Half-Width Side-by-Side</option>
+                    <option value="topbottom">Top / Bottom Stereo</option>
+                    <option value="rowinterlaced">Row-Interlaced</option>
+                    <option value="columninterlaced">Column-Interlaced</option>
+                    <option value="checkerboard">Checkerboard Stereo</option>
+                </select>}
             </div>
             <div className="techniqueSummary"><strong>{info.label}</strong><span>{info.description}</span><em>{info.family}</em></div>
 
@@ -318,10 +376,11 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
                     <div className="rangeLabels"><span>Smaller</span><span>Fill stage</span></div>
                 </div>
                 {usesStereo && <label className="toggleSetting"><span><strong>Pop out</strong><small>Place depth in front of screen</small></span><input type="checkbox" checked={popOut} disabled={!isChangeAllowed} onChange={(e) => setPopOut(e.target.checked)} /></label>}
-                {activeTechnique === 'anaglyph' && <label className="toggleSetting"><span><strong>Reduce retinal rivalry</strong><small>Red/cyan output only</small></span><input type="checkbox" checked={optimiseRRAnaglyph} disabled={!isChangeAllowed} onChange={(e) => setOptimiseRRAnaglyph(e.target.checked)} /></label>}
+                {usesEyeOrder && <label className="toggleSetting"><span><strong>Swap left / right</strong><small>Reverse eye order without regenerating depth</small></span><input type="checkbox" checked={swapEyes} disabled={!isChangeAllowed} onChange={(e) => setSwapEyes(e.target.checked)} /></label>}
+                {showRetinalRivalry && <label className="toggleSetting"><span><strong>Reduce retinal rivalry</strong><small>Optimized full-color red/cyan only</small></span><input type="checkbox" checked={optimiseRRAnaglyph} disabled={!isChangeAllowed} onChange={(e) => setOptimiseRRAnaglyph(e.target.checked)} /></label>}
             </div>
 
-            {specialSelected && <TechniqueControls technique={activeTechnique} settings={draftSettings} setSettings={setDraftSettings} onApply={applyTechniqueSettings} dirty={techniqueDirty} disabled={!isChangeAllowed} apiUrl={apiUrl} />}
+            {showTechniqueSettings && <TechniqueControls technique={activeTechnique} settings={draftSettings} setSettings={setDraftSettings} onApply={applyTechniqueSettings} dirty={techniqueDirty} disabled={!isChangeAllowed} apiUrl={apiUrl} />}
 
             <div className="downloadPanel">
                 <div className="downloadHeading"><div><strong>Final output</strong><span>{activeTechnique === 'wiggle' ? 'Animated GIFs are exported at a playback-optimized raster size so the saved file can maintain its requested speed.' : 'Static techniques render from the full-resolution source. Print-specific formats use their selected physical dimensions and DPI.'}</span></div><span className="fullResBadge">FULL QUALITY</span></div>
