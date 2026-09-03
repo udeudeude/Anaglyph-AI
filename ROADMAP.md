@@ -46,6 +46,7 @@ This file tracks ideas that are intentionally **not** part of the current implem
 
 ## Potential future viewing / export techniques
 
+- **View-Master reel output** using a printable transparency master with seven stereo image pairs per reel (14 individual eye frames), with accurate frame sizing, spacing, and registration guides for cutting/mounting.
 - **MPO / stereo JPEG** for devices and software that store both eye views in one file.
 - **Pulfrich animation** using generated horizontal motion for dark-filter Pulfrich viewing.
 - **Additional autostereoscopic display profiles** when a specific display/panel is available for calibration.
