@@ -6,7 +6,7 @@ Depth is interpreted as relief height above the print, not as an arbitrary 2-D w
 """
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 
 def fit_to_print(image, depth, width, height):
@@ -30,41 +30,61 @@ def fit_to_print(image, depth, width, height):
 
 
 def project_relief(image, depth, print_width_mm, print_height_mm, view_distance_mm,
-                   eye_height_mm, eye_x_mm, relief_mm, reverse_depth=False):
+                   eye_height_mm, eye_x_mm, relief_mm, reverse_depth=False, tile_rows=128):
+    """Project a textured height field onto the print plane with a tiled z-buffer.
+
+    Tiling keeps peak memory bounded enough for 300/600-DPI print rasters instead of
+    sorting every source pixel in one enormous array.
+    """
     h, w = image.shape[:2]
     if depth.shape != (h, w):
         depth = cv2.resize(depth.astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
     d = np.clip(depth.astype(np.float32), 0.0, 1.0)
     if reverse_depth:
         d = 1.0 - d
-    z = d * max(0.0, float(relief_mm))
-    xs = np.linspace(-print_width_mm / 2.0, print_width_mm / 2.0, w, dtype=np.float32)[None, :]
-    ys = np.linspace(0.0, print_height_mm, h, dtype=np.float32)[:, None]
-    eye_y = -max(1.0, float(view_distance_mm))
-    eye_z = max(float(relief_mm) + 1.0, float(eye_height_mm))
 
-    # Ray from each eye through each relief point intersects the physical print plane z=0.
-    t = eye_z / np.maximum(1e-6, eye_z - z)
-    px = eye_x_mm + t * (xs - eye_x_mm)
-    py = eye_y + t * (ys - eye_y)
-    u = np.rint((px / print_width_mm + 0.5) * (w - 1)).astype(np.int32)
-    v = np.rint((py / print_height_mm) * (h - 1)).astype(np.int32)
+    relief_mm = max(0.0, float(relief_mm))
+    eye_y = -max(1.0, float(view_distance_mm))
+    eye_z = max(relief_mm + 1.0, float(eye_height_mm))
+    xs = np.linspace(-print_width_mm / 2.0, print_width_mm / 2.0, w, dtype=np.float32)[None, :]
 
     out = np.zeros_like(image)
-    occupied = np.zeros((h, w), dtype=np.uint8)
-    # Painter's algorithm: higher relief is nearer the eye and wins collisions.
-    order = np.argsort(z.ravel())
-    src_y, src_x = np.indices((h, w))
-    flat_y = src_y.ravel()[order]
-    flat_x = src_x.ravel()[order]
-    dest_x = u.ravel()[order]
-    dest_y = v.ravel()[order]
-    valid = (dest_x >= 0) & (dest_x < w) & (dest_y >= 0) & (dest_y < h)
-    dx = dest_x[valid]
-    dy = dest_y[valid]
-    out[dy, dx] = image[flat_y[valid], flat_x[valid]]
-    occupied[dy, dx] = 255
-    holes = cv2.bitwise_not(occupied)
+    out_flat = out.reshape(-1, 3)
+    zbuffer = np.full(h * w, -1.0, dtype=np.float32)
+    tile_rows = max(16, min(512, int(tile_rows)))
+
+    for y0 in range(0, h, tile_rows):
+        y1 = min(h, y0 + tile_rows)
+        tile_depth = d[y0:y1]
+        z = tile_depth * relief_mm
+        ys = np.linspace(
+            print_height_mm * y0 / max(1, h - 1),
+            print_height_mm * (y1 - 1) / max(1, h - 1),
+            y1 - y0,
+            dtype=np.float32,
+        )[:, None]
+
+        # Ray from each eye through each relief point intersects the physical print plane z=0.
+        t = eye_z / np.maximum(1e-6, eye_z - z)
+        px = eye_x_mm + t * (xs - eye_x_mm)
+        py = eye_y + t * (ys - eye_y)
+        u = np.rint((px / print_width_mm + 0.5) * (w - 1)).astype(np.int32)
+        v = np.rint((py / print_height_mm) * (h - 1)).astype(np.int32)
+        valid = (u >= 0) & (u < w) & (v >= 0) & (v < h)
+        if not np.any(valid):
+            continue
+
+        valid_flat = valid.ravel()
+        dest = (v.ravel()[valid_flat].astype(np.int64) * w + u.ravel()[valid_flat].astype(np.int64))
+        zvals = z.ravel()[valid_flat]
+        source = image[y0:y1].reshape(-1, 3)[valid_flat]
+
+        # Higher relief is nearer the eye and wins destination collisions.
+        np.maximum.at(zbuffer, dest, zvals)
+        winners = zvals >= (zbuffer[dest] - 1e-6)
+        out_flat[dest[winners]] = source[winners]
+
+    holes = (zbuffer.reshape(h, w) < 0.0).astype(np.uint8) * 255
     if np.any(holes):
         out = cv2.inpaint(out, holes, 2, cv2.INPAINT_TELEA)
     return out
