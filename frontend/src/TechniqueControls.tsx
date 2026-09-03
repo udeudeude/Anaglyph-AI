@@ -1,0 +1,180 @@
+import { useState } from 'react';
+import type { ChangeEvent } from 'react';
+import type { TechniqueId, TechniqueSettings } from './techniques';
+
+
+type Props = {
+    technique: TechniqueId;
+    settings: TechniqueSettings;
+    setSettings: (settings: TechniqueSettings) => void;
+    onApply: () => void;
+    dirty: boolean;
+    disabled: boolean;
+    apiUrl: string;
+};
+
+const numberValue = (value: string, fallback: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+function TechniqueControls({ technique, settings, setSettings, onApply, dirty, disabled, apiUrl }: Props) {
+    const [patternStatus, setPatternStatus] = useState('');
+    const update = <K extends keyof TechniqueSettings>(section: K, values: Partial<TechniqueSettings[K]>) => {
+        setSettings({ ...settings, [section]: { ...settings[section], ...values } });
+    };
+
+    const applyCardboardPreset = (preset: TechniqueSettings['cardboard']['preset']) => {
+        if (preset === 'cardboard') {
+            update('cardboard', { preset, width: 1920, height: 1080, screenWidthMm: 121, lensSeparationMm: 63, imageScale: 92 });
+        } else if (preset === 'generic') {
+            update('cardboard', { preset, width: 1920, height: 1080, screenWidthMm: 135, lensSeparationMm: 64, imageScale: 90 });
+        } else update('cardboard', { preset });
+    };
+
+    const applyStereoscopePreset = (preset: TechniqueSettings['stereoscope']['preset']) => {
+        if (preset === 'holmes') {
+            update('stereoscope', { preset, dpi: 300, cardWidth: 7, cardHeight: 3.5, imageWidth: 2.85, imageHeight: 2.55, gap: 0.35, arch: 0.22 });
+        } else update('stereoscope', { preset });
+    };
+
+    const applyLenticularPreset = (preset: TechniqueSettings['lenticular']['preset']) => {
+        if (preset === '60lpi') update('lenticular', { preset, dpi: 600, lpi: 60, views: 6, widthIn: 6, heightIn: 4, slant: 0 });
+        else if (preset === '50lpi') update('lenticular', { preset, dpi: 600, lpi: 50, views: 6, widthIn: 6, heightIn: 4, slant: 0 });
+        else if (preset === '40lpi') update('lenticular', { preset, dpi: 600, lpi: 40, views: 8, widthIn: 6, heightIn: 4, slant: 0 });
+        else update('lenticular', { preset });
+    };
+
+    const uploadPattern = async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        setPatternStatus('Uploading pattern…');
+        const form = new FormData();
+        form.append('file', file, file.name);
+        try {
+            const response = await fetch(`${apiUrl}/pattern`, { method: 'POST', body: form, credentials: 'include' });
+            if (!response.ok) throw new Error(`Pattern upload failed: ${response.status}`);
+            setPatternStatus(`Custom pattern ready: ${file.name}`);
+        } catch (error) {
+            console.error(error);
+            setPatternStatus('Pattern upload failed.');
+        }
+    };
+
+    const calibrationUrl = () => {
+        const s = settings.lenticular;
+        const params = new URLSearchParams({
+            dpi: String(s.dpi), lpi: String(s.lpi), span: String(s.calibrationSpan),
+            step: String(s.calibrationStep), width_in: String(s.calibrationWidth),
+        });
+        return `${apiUrl}/lenticular/calibration?${params.toString()}`;
+    };
+
+    let body = null;
+
+    if (technique === 'chromadepth') {
+        const s = settings.chromadepth;
+        body = <>
+            <div className="techniqueGrid two">
+                <label><span>Color strength</span><div className="inlineRange"><input type="range" min="20" max="100" value={s.colorStrength} onChange={(e) => update('chromadepth', { colorStrength: Number(e.target.value) })} /><strong>{s.colorStrength}%</strong></div></label>
+                <label className="checkField"><span>Depth direction</span><div><input type="checkbox" checked={s.reverse} onChange={(e) => update('chromadepth', { reverse: e.target.checked })} /> Reverse near/far colors</div></label>
+            </div>
+            <p className="techniqueHint">Starting point: near objects render toward red and distant areas toward blue, retaining source-image brightness.</p>
+        </>;
+    }
+
+    if (technique === 'cardboard') {
+        const s = settings.cardboard;
+        body = <>
+            <div className="presetRow"><label>Viewer preset<select value={s.preset} onChange={(e) => applyCardboardPreset(e.target.value as typeof s.preset)}><option value="cardboard">Google Cardboard-style</option><option value="generic">Generic phone VR viewer</option><option value="custom">Custom viewer</option></select></label></div>
+            <div className="techniqueGrid three">
+                <label><span>Output width</span><input type="number" value={s.width} min="640" max="5000" onChange={(e) => update('cardboard', { width: numberValue(e.target.value, 1920), preset: 'custom' })} /><small>pixels</small></label>
+                <label><span>Output height</span><input type="number" value={s.height} min="360" max="3000" onChange={(e) => update('cardboard', { height: numberValue(e.target.value, 1080), preset: 'custom' })} /><small>pixels</small></label>
+                <label><span>Phone screen width</span><input type="number" value={s.screenWidthMm} step="0.1" min="70" max="200" onChange={(e) => update('cardboard', { screenWidthMm: numberValue(e.target.value, 121), preset: 'custom' })} /><small>mm</small></label>
+                <label><span>Lens separation</span><input type="number" value={s.lensSeparationMm} step="0.1" min="45" max="80" onChange={(e) => update('cardboard', { lensSeparationMm: numberValue(e.target.value, 63), preset: 'custom' })} /><small>mm</small></label>
+                <label><span>Image fill</span><div className="inlineRange"><input type="range" min="40" max="100" value={s.imageScale} onChange={(e) => update('cardboard', { imageScale: Number(e.target.value), preset: 'custom' })} /><strong>{s.imageScale}%</strong></div></label>
+            </div>
+            <p className="techniqueHint">The Cardboard starting point uses a 63 mm lens-center separation. For best alignment, enter the physical screen width and lens spacing of your viewer.</p>
+        </>;
+    }
+
+    if (technique === 'stereoscope') {
+        const s = settings.stereoscope;
+        body = <>
+            <div className="presetRow"><label>Card preset<select value={s.preset} onChange={(e) => applyStereoscopePreset(e.target.value as typeof s.preset)}><option value="holmes">Holmes-style 7 × 3.5 in stereograph</option><option value="custom">Custom card</option></select></label></div>
+            <div className="techniqueGrid four">
+                <label><span>Print DPI</span><input type="number" min="72" max="1200" value={s.dpi} onChange={(e) => update('stereoscope', { dpi: numberValue(e.target.value, 300), preset: 'custom' })} /></label>
+                <label><span>Card width</span><input type="number" step="0.05" value={s.cardWidth} onChange={(e) => update('stereoscope', { cardWidth: numberValue(e.target.value, 7), preset: 'custom' })} /><small>in</small></label>
+                <label><span>Card height</span><input type="number" step="0.05" value={s.cardHeight} onChange={(e) => update('stereoscope', { cardHeight: numberValue(e.target.value, 3.5), preset: 'custom' })} /><small>in</small></label>
+                <label><span>Image gap</span><input type="number" step="0.01" value={s.gap} onChange={(e) => update('stereoscope', { gap: numberValue(e.target.value, .35), preset: 'custom' })} /><small>in</small></label>
+                <label><span>Image width</span><input type="number" step="0.05" value={s.imageWidth} onChange={(e) => update('stereoscope', { imageWidth: numberValue(e.target.value, 2.85), preset: 'custom' })} /><small>in</small></label>
+                <label><span>Image height</span><input type="number" step="0.05" value={s.imageHeight} onChange={(e) => update('stereoscope', { imageHeight: numberValue(e.target.value, 2.55), preset: 'custom' })} /><small>in</small></label>
+                <label><span>Top arch depth</span><input type="number" step="0.01" value={s.arch} onChange={(e) => update('stereoscope', { arch: numberValue(e.target.value, .22), preset: 'custom' })} /><small>in</small></label>
+                <label><span>Mount color</span><select value={s.cardTone} onChange={(e) => update('stereoscope', { cardTone: e.target.value as typeof s.cardTone })}><option value="cream">Cream</option><option value="tan">Tan</option><option value="gray">Gray</option><option value="black">Black</option><option value="white">White</option></select></label>
+            </div>
+            <div className="textFields">
+                <label>Title<input type="text" maxLength={100} value={s.title} onChange={(e) => update('stereoscope', { title: e.target.value })} /></label>
+                <label>Caption<input type="text" maxLength={160} value={s.caption} onChange={(e) => update('stereoscope', { caption: e.target.value })} /></label>
+                <label>Publisher / credit<input type="text" maxLength={120} value={s.publisher} onChange={(e) => update('stereoscope', { publisher: e.target.value })} /></label>
+            </div>
+            <p className="techniqueHint">The default starts from the common 7 × 3.5 inch stereograph-card format and gives both photographs a traditional arched top.</p>
+        </>;
+    }
+
+    if (technique === 'wiggle') {
+        const s = settings.wiggle;
+        body = <div className="techniqueGrid two">
+            <label><span>Unique viewpoints</span><input type="number" min="2" max="15" value={s.frames} onChange={(e) => update('wiggle', { frames: numberValue(e.target.value, 7) })} /><small>plays forward and back</small></label>
+            <label><span>Frame duration</span><input type="number" min="40" max="1000" step="10" value={s.duration} onChange={(e) => update('wiggle', { duration: numberValue(e.target.value, 130) })} /><small>milliseconds</small></label>
+        </div>;
+    }
+
+    if (technique === 'randomdot' || technique === 'pattern') {
+        const s = settings.autostereogram;
+        body = <>
+            <div className="techniqueGrid three">
+                <label><span>Viewing method</span><select value={s.viewing} onChange={(e) => update('autostereogram', { viewing: e.target.value as typeof s.viewing })}><option value="parallel">Parallel / wall-eyed</option><option value="cross">Cross-eyed</option></select></label>
+                <label><span>Base separation</span><input type="number" min="3" max="20" step="0.1" value={s.separation} onChange={(e) => update('autostereogram', { separation: numberValue(e.target.value, 8) })} /><small>% of image width</small></label>
+                <label><span>Depth strength</span><input type="number" min="0.2" max="6" step="0.1" value={s.depthStrength} onChange={(e) => update('autostereogram', { depthStrength: numberValue(e.target.value, 2.3) })} /><small>% of image width</small></label>
+                {technique === 'randomdot' && <label><span>Dot size</span><input type="number" min="1" max="12" value={s.dotSize} onChange={(e) => update('autostereogram', { dotSize: numberValue(e.target.value, 3) })} /><small>pixels at preview scale</small></label>}
+                {technique === 'randomdot' && <label className="checkField"><span>Dot palette</span><div><input type="checkbox" checked={s.color} onChange={(e) => update('autostereogram', { color: e.target.checked })} /> Use colored dots</div></label>}
+            </div>
+            {technique === 'pattern' && <div className="patternUpload"><label>Custom repeating pattern<input type="file" accept="image/*" onChange={uploadPattern} /></label><span>{patternStatus || 'Optional. A built-in geometric texture is used until you upload one.'}</span></div>}
+            <p className="techniqueHint">These are single-image autostereograms. The depth map controls local pattern separation rather than producing a left/right pair.</p>
+        </>;
+    }
+
+    if (technique === 'lenticular') {
+        const s = settings.lenticular;
+        body = <>
+            <div className="presetRow"><label>Starting preset<select value={s.preset} onChange={(e) => applyLenticularPreset(e.target.value as typeof s.preset)}><option value="60lpi">60 LPI sheet · 600 DPI · 6 views</option><option value="50lpi">50 LPI sheet · 600 DPI · 6 views</option><option value="40lpi">40 LPI sheet · 600 DPI · 8 views</option><option value="custom">Custom calibrated setup</option></select></label></div>
+            <div className="techniqueGrid four">
+                <label><span>Printer DPI</span><input type="number" min="150" max="2400" value={s.dpi} onChange={(e) => update('lenticular', { dpi: numberValue(e.target.value, 600), preset: 'custom' })} /></label>
+                <label><span>Measured sheet pitch</span><input type="number" min="10" max="200" step="0.01" value={s.lpi} onChange={(e) => update('lenticular', { lpi: numberValue(e.target.value, 60), preset: 'custom' })} /><small>LPI</small></label>
+                <label><span>Print width</span><input type="number" min="1" max="30" step="0.1" value={s.widthIn} onChange={(e) => update('lenticular', { widthIn: numberValue(e.target.value, 6), preset: 'custom' })} /><small>in</small></label>
+                <label><span>Print height</span><input type="number" min="1" max="30" step="0.1" value={s.heightIn} onChange={(e) => update('lenticular', { heightIn: numberValue(e.target.value, 4), preset: 'custom' })} /><small>in</small></label>
+                <label><span>View count</span><input type="number" min="2" max="16" value={s.views} onChange={(e) => update('lenticular', { views: numberValue(e.target.value, 6), preset: 'custom' })} /></label>
+                <label><span>Lenticule slant</span><input type="number" min="-10" max="10" step="0.01" value={s.slant} onChange={(e) => update('lenticular', { slant: numberValue(e.target.value, 0), preset: 'custom' })} /><small>degrees</small></label>
+            </div>
+            <div className="calibrationBox">
+                <div><strong>Printer + sheet calibration</strong><span>Print this before processing the final image. Find the band with the cleanest transition / least moiré, then enter that LPI above.</span></div>
+                <div className="techniqueGrid three compact">
+                    <label><span>Test ±</span><input type="number" min="0.1" max="5" step="0.1" value={s.calibrationSpan} onChange={(e) => update('lenticular', { calibrationSpan: numberValue(e.target.value, .5) })} /><small>LPI</small></label>
+                    <label><span>Test step</span><input type="number" min="0.02" max="1" step="0.01" value={s.calibrationStep} onChange={(e) => update('lenticular', { calibrationStep: numberValue(e.target.value, .1) })} /><small>LPI</small></label>
+                    <label><span>Strip width</span><input type="number" min="2" max="20" step="0.5" value={s.calibrationWidth} onChange={(e) => update('lenticular', { calibrationWidth: numberValue(e.target.value, 8) })} /><small>in</small></label>
+                </div>
+                <a className="calibrationDownload" href={calibrationUrl()}>Download black/white calibration bars</a>
+                <strong className="printWarning">PRINT AT 100% / ACTUAL SIZE. Disable all fit-to-page scaling.</strong>
+            </div>
+        </>;
+    }
+
+    if (!body) return null;
+
+    return <section className="techniqueSettings">
+        <div className="techniqueSettingsHeader"><div><span className="panelLabel">TECHNIQUE SETTINGS</span><strong>Settings for this viewing method</strong></div><button className={dirty ? 'applyTechnique dirty' : 'applyTechnique'} onClick={onApply} disabled={disabled || !dirty}>{dirty ? 'Apply settings' : 'Settings applied'}</button></div>
+        {body}
+    </section>;
+}
+
+export default TechniqueControls;
