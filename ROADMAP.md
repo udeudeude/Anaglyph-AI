@@ -10,18 +10,13 @@ This file tracks ideas that are intentionally **not** part of the current implem
    - local masking and edge cleanup
    - preserve/export edited high-bit-depth depth data
 
-2. **Phantogram mode**
-   - viewing-plane and camera/viewer geometry
-   - perspective remapping for tabletop/oblique viewing
-   - print calibration and physical-size-aware output
-
-3. **Packaged macOS application**
+2. **Packaged macOS application**
    - double-click launch
    - bundle/start local backend automatically
    - eliminate Terminal setup for normal use
    - eventually consider signing/notarization and Intel/Apple Silicon packaging
 
-4. **Independent transparent 3D foreground layers**
+3. **Independent transparent 3D foreground layers**
    - import a transparent PNG as a movable object over the base photograph
    - estimate or import a separate depth map for that foreground object
    - synthesize the layer stereoscopically as well as the base image
@@ -29,6 +24,31 @@ This file tracks ideas that are intentionally **not** part of the current implem
    - control where the object sits in scene depth so it can appear in front of or behind existing geometry
    - preserve alpha edges cleanly in generated left/right views and final techniques
    - potentially support multiple independent 3D layers later
+
+## Phantogram workspace — experimental implementation
+
+The application now includes a separate **AI Relief Phantogram** workspace. It uses the current source and active AI/imported depth map as a physical height field above a flat print, places two virtual eyes in millimetre coordinates, projects the relief independently back onto the print plane, and combines the two projections as a red/cyan, red/green, or red/blue anaglyph.
+
+Implemented:
+
+- physical print width and height
+- viewing distance from the near print edge
+- eye height above the print
+- configurable eye separation / IPD
+- maximum apparent relief in millimetres
+- reverse-depth option
+- center-crop source/depth together to the selected print aspect ratio
+- 150 / 300 / 600 DPI print-ready PNG output with embedded physical DPI metadata
+- downloadable exact 100 mm ruler for verifying printer scaling
+- regression tests and geometric invariants, including exact identity at zero relief
+
+Still worth developing after physical testing:
+
+- a **traditional calibrated phantogram mode** using a photographed/identified physical ground plane rather than AI relief alone
+- interactive selection of four ground-plane corners and known plane dimensions
+- optional left/right free-view output in addition to anaglyph
+- print-page layouts with margins, labels, and viewing-position instructions
+- calibration against real printed examples to refine useful default eye height, viewing distance, and relief limits
 
 ## Documentation / onboarding
 
@@ -39,9 +59,9 @@ This file tracks ideas that are intentionally **not** part of the current implem
   - include only screenshots that clarify steps where a new GitHub/Terminal user could otherwise get lost
 - **Add visual output examples so someone considering the project can quickly understand what it produces before installing it.**
   - use one or two strong source images and show the source, AI depth map, and representative finished outputs
-  - include examples of at least red/cyan anaglyph, parallel/cross-eyed stereo, ChromaDepth, a traditional stereoscope card, a random-dot or pattern stereogram, wiggle-gram, and lenticular output
+  - include examples of at least red/cyan anaglyph, parallel/cross-eyed stereo, ChromaDepth, a traditional stereoscope card, a random-dot or pattern stereogram, wiggle-gram, lenticular output, and AI relief phantogram output
   - favor a compact gallery near the top of the README rather than forcing readers to infer results from feature descriptions
-  - label examples clearly when special glasses, free-viewing, a stereoscope, animation, or lenticular material are required to perceive the 3D effect
+  - label examples clearly when special glasses, free-viewing, a stereoscope, animation, or print calibration are required to perceive the 3D effect
   - where a GitHub README cannot demonstrate the effect directly, show a representative still and explain what the downloaded/animated/printed result is intended to look like
 
 ## View-Master reel builder — in progress
@@ -85,6 +105,7 @@ The current application includes:
 - random-dot autostereograms
 - pattern-based autostereograms
 - lenticular 3D interlacing plus printable LPI calibration bars
+- experimental AI relief phantogram workspace with physically calibrated PNG output
 - experimental seven-scene View-Master reel builder with transparency/card templates
 
 ### Lower-priority display / compatibility formats
