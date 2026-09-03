@@ -5,8 +5,11 @@ import time
 start_import_time = time.time()
 import cv2
 import torch
+import torch.nn.functional as F
 import numpy as np
+from torchvision.transforms import Compose
 from ai_models.Depth_Anything_V2.depth_anything_v2.dpt import DepthAnythingV2
+from ai_models.Depth_Anything_V2.depth_anything_v2.util.transform import Resize, NormalizeImage, PrepareForNet
 end_import_time = time.time()
 print(f"Elapsed time for imports: {end_import_time - start_import_time:.4f} seconds")
 
@@ -46,6 +49,7 @@ def choose_torch_device() -> str:
 class DepthMapGenerator:
     _instance = None
     model = None
+    device = "cpu"
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -58,7 +62,7 @@ class DepthMapGenerator:
 
     def load_model(self, encoder):
         print("Loading model")
-        device = choose_torch_device()
+        self.device = choose_torch_device()
         model_configs = {
             'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
             'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
@@ -67,12 +71,42 @@ class DepthMapGenerator:
         }
         self.model = DepthAnythingV2(**model_configs[encoder])
         self.model.load_state_dict(torch.load(f'ai_models/checkpoints/depth_anything_v2_{encoder}.pth', map_location='cpu'))
-        self.model = self.model.to(device).eval()
-        print(f"Loaded model on {device}")
+        self.model = self.model.to(self.device).eval()
+        print(f"Loaded model on {self.device}")
 
     def generate_depth_map(self, image: np.ndarray) -> np.ndarray:
-        """Generate a full-image normalized depth map while the model handles inference resizing internally."""
-        return self.normalise(self.model.infer_image(image)).astype(np.float32)
+        """Generate depth while keeping both model weights and input tensor on our selected device.
+
+        Depth Anything V2's stock image2tensor() independently chooses CUDA/MPS/CPU.
+        On Intel Macs that can put the input on MPS even when we intentionally keep
+        the model on CPU, causing a device-type mismatch. Reproducing its preprocessing
+        here lets Anaglyph & Friends make one consistent device decision.
+        """
+        input_size = 518
+        transform = Compose([
+            Resize(
+                width=input_size,
+                height=input_size,
+                resize_target=False,
+                keep_aspect_ratio=True,
+                ensure_multiple_of=14,
+                resize_method='lower_bound',
+                image_interpolation_method=cv2.INTER_CUBIC,
+            ),
+            NormalizeImage(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            PrepareForNet(),
+        ])
+
+        h, w = image.shape[:2]
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) / 255.0
+        prepared = transform({'image': rgb})['image']
+        tensor = torch.from_numpy(prepared).unsqueeze(0).to(self.device)
+
+        with torch.no_grad():
+            depth = self.model(tensor)
+            depth = F.interpolate(depth[:, None], (h, w), mode="bilinear", align_corners=True)[0, 0]
+
+        return self.normalise(depth.cpu().numpy()).astype(np.float32)
 
     def normalise(self, depth_map: np.ndarray) -> np.ndarray:
         minimum = float(np.min(depth_map))
