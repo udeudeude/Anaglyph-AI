@@ -24,7 +24,7 @@ export type TechniqueSettings = {
     };
     wiggle: { frames: number; duration: number };
     autostereogram: {
-        separation: number; depthStrength: number; dotSize: number; viewing: 'parallel' | 'cross'; color: boolean; patternRevision: number;
+        separation: number; depthStrength: number; dotSize: number; viewing: 'parallel' | 'cross'; color: boolean; guides: boolean; patternRevision: number;
     };
     lenticular: {
         preset: '60lpi' | '50lpi' | '40lpi' | 'custom';
@@ -57,8 +57,8 @@ export const defaultTechniqueSettings: TechniqueSettings = {
         publisher: 'Anaglyph & Friends',
         cardTone: 'cream',
     },
-    wiggle: { frames: 7, duration: 130 },
-    autostereogram: { separation: 8, depthStrength: 2.3, dotSize: 3, viewing: 'parallel', color: false, patternRevision: 0 },
+    wiggle: { frames: 7, duration: 75 },
+    autostereogram: { separation: 8, depthStrength: 2.3, dotSize: 3, viewing: 'parallel', color: false, guides: true, patternRevision: 0 },
     lenticular: {
         preset: '60lpi',
         dpi: 600,
@@ -94,11 +94,14 @@ export function mergeStoredSettings(raw: string | null): TechniqueSettings {
     if (!raw) return structuredClone(defaultTechniqueSettings);
     try {
         const parsed = JSON.parse(raw);
+        const storedWiggle = { ...defaultTechniqueSettings.wiggle, ...(parsed.wiggle || {}) };
+        // 130 ms was the first-release default. Migrate that untouched legacy value to the quicker current default.
+        if (parsed.wiggle?.duration === 130) storedWiggle.duration = defaultTechniqueSettings.wiggle.duration;
         return {
             chromadepth: { ...defaultTechniqueSettings.chromadepth, ...(parsed.chromadepth || {}) },
             cardboard: { ...defaultTechniqueSettings.cardboard, ...(parsed.cardboard || {}) },
             stereoscope: { ...defaultTechniqueSettings.stereoscope, ...(parsed.stereoscope || {}) },
-            wiggle: { ...defaultTechniqueSettings.wiggle, ...(parsed.wiggle || {}) },
+            wiggle: storedWiggle,
             autostereogram: { ...defaultTechniqueSettings.autostereogram, ...(parsed.autostereogram || {}) },
             lenticular: { ...defaultTechniqueSettings.lenticular, ...(parsed.lenticular || {}) },
         };
