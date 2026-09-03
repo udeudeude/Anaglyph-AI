@@ -11,6 +11,7 @@ import numpy as np
 
 from depth_map_generator import depth_map_generator
 from anaglyph_generator import anaglyph_generator
+from technique_generator import technique_generator
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from werkzeug.utils import send_from_directory
@@ -95,6 +96,41 @@ def resize_image_and_depth(image, depth_map, max_dimension):
     return image_resized, np.clip(depth_resized, 0.0, 1.0).astype(np.float32)
 
 
+def source_and_depth(scope="preview", max_dimension=PREVIEW_MAX_DIMENSION):
+    ensure_depth_maps()
+    image = cv2.imread(session_path("image.png"))
+    depth = np.load(session_path("depth_map.npy"), allow_pickle=False).astype(np.float32)
+    if image is None:
+        raise FileNotFoundError("No uploaded source image is available")
+    if scope == "preview":
+        image, depth = resize_image_and_depth(image, depth, max_dimension)
+    return image, depth
+
+
+def send_cv_image(image, filename, output_format="png", quality=95, download=False):
+    output_format = output_format.lower()
+    quality = max(40, min(100, int(quality)))
+    if output_format in ("jpeg", "jpg"):
+        ok, encoded = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+        mimetype = "image/jpeg"
+        extension = "jpg"
+    else:
+        ok, encoded = cv2.imencode(".png", image)
+        mimetype = "image/png"
+        extension = "png"
+    if not ok:
+        raise RuntimeError("Could not encode output image")
+    base = filename.rsplit(".", 1)[0]
+    return send_file(io.BytesIO(encoded.tobytes()), mimetype=mimetype, as_attachment=download, download_name=f"{base}.{extension}")
+
+
+def send_pil_png(image: Image.Image, filename: str, dpi: int, download=True):
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", dpi=(dpi, dpi))
+    buffer.seek(0)
+    return send_file(buffer, mimetype="image/png", as_attachment=download, download_name=filename)
+
+
 @app.route("/image", methods=["POST"])
 def upload_image():
     if "file" not in request.files:
@@ -120,6 +156,19 @@ def upload_image():
         }), 200
     except Exception as e:
         return jsonify({"error": str(e) + " Note: transparent background not allowed"}), 400
+
+
+@app.route("/pattern", methods=["POST"])
+def upload_pattern():
+    if "file" not in request.files:
+        return jsonify({"error": "No pattern file"}), 400
+    try:
+        pattern = ImageOps.exif_transpose(Image.open(request.files["file"])).convert("RGB")
+        pattern.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+        pattern.save(session_path("pattern.png"), format="PNG")
+        return jsonify({"success": True, "width": pattern.width, "height": pattern.height}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 
 def ensure_depth_maps():
@@ -213,10 +262,7 @@ def ensure_stereo_pair(scope, pop_out, max_disparity_percentage):
         image, depth_map = resize_image_and_depth(image, depth_map, PREVIEW_MAX_DIMENSION)
 
     left_image, right_image = anaglyph_generator.generate_stereo_images(
-        image,
-        depth_map,
-        pop_out,
-        max_disparity_percentage,
+        image, depth_map, pop_out, max_disparity_percentage
     )
     cv2.imwrite(paths["left"], left_image)
     cv2.imwrite(paths["right"], right_image)
@@ -284,24 +330,10 @@ def get_output(kind):
         optimised = request.args.get("optimised_RR_anaglyph", default="false").lower() == "true"
         output_format = request.args.get("format", "jpeg").lower()
         quality = int(request.args.get("quality", 95))
-        quality = max(40, min(100, quality))
         download = request.args.get("download", "false").lower() == "true"
-
         if output_format not in ("jpeg", "jpg", "png"):
             return jsonify({"error": "format must be jpeg or png"}), 400
-
         output = build_output(kind.lower(), scope, pop_out, strength, optimised)
-        if output_format in ("jpeg", "jpg"):
-            ok, encoded = cv2.imencode(".jpg", output, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
-            mimetype = "image/jpeg"
-            extension = "jpg"
-        else:
-            ok, encoded = cv2.imencode(".png", output)
-            mimetype = "image/png"
-            extension = "png"
-        if not ok:
-            raise RuntimeError("Could not encode output image")
-
         names = {
             "anaglyph": "red-cyan-anaglyph",
             "parallel": "parallel-stereo",
@@ -309,13 +341,155 @@ def get_output(kind):
             "left": "left-eye",
             "right": "right-eye",
         }
-        filename = f"{names.get(kind.lower(), kind.lower())}.{extension}"
-        return send_file(
-            io.BytesIO(encoded.tobytes()),
-            mimetype=mimetype,
-            as_attachment=download,
-            download_name=filename,
+        return send_cv_image(output, names.get(kind.lower(), kind.lower()), output_format, quality, download)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/special/chromadepth", methods=["GET"])
+def special_chromadepth():
+    try:
+        scope = request.args.get("scope", "preview").lower()
+        amount = float(request.args.get("color_strength", 90)) / 100.0
+        reverse = request.args.get("reverse", "false").lower() == "true"
+        image, depth = source_and_depth(scope)
+        output = technique_generator.chromadepth(image, depth, amount, reverse)
+        return send_cv_image(output, "chromadepth", request.args.get("format", "png"), request.args.get("quality", 95), request.args.get("download", "false").lower() == "true")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/special/cardboard", methods=["GET"])
+def special_cardboard():
+    try:
+        scope = request.args.get("scope", "preview").lower()
+        pop_out, strength = parse_render_parameters()
+        paths = ensure_stereo_pair(scope, pop_out, strength)
+        left = cv2.imread(paths["left"])
+        right = cv2.imread(paths["right"])
+        output = technique_generator.cardboard(
+            left, right,
+            int(request.args.get("width", 1920)),
+            int(request.args.get("height", 1080)),
+            float(request.args.get("screen_width_mm", 121)),
+            float(request.args.get("lens_separation_mm", 63)),
+            float(request.args.get("image_scale", 92)) / 100.0,
         )
+        return send_cv_image(output, "cardboard-stereo", request.args.get("format", "png"), request.args.get("quality", 95), request.args.get("download", "false").lower() == "true")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/special/stereoscope", methods=["GET"])
+def special_stereoscope():
+    try:
+        pop_out, strength = parse_render_parameters()
+        scope = request.args.get("scope", "preview").lower()
+        dpi = int(request.args.get("dpi", 300))
+        render_dpi = min(dpi, 180) if scope == "preview" else dpi
+        paths = ensure_stereo_pair("preview" if scope == "preview" else "full", pop_out, strength)
+        left = cv2.imread(paths["left"])
+        right = cv2.imread(paths["right"])
+        output = technique_generator.stereoscope_card(
+            left, right,
+            dpi=render_dpi,
+            card_width_in=float(request.args.get("card_width", 7.0)),
+            card_height_in=float(request.args.get("card_height", 3.5)),
+            image_width_in=float(request.args.get("image_width", 2.85)),
+            image_height_in=float(request.args.get("image_height", 2.55)),
+            gap_in=float(request.args.get("gap", 0.35)),
+            arch_in=float(request.args.get("arch", 0.22)),
+            title=request.args.get("title", "STEREOSCOPIC VIEW"),
+            caption=request.args.get("caption", "Generated from a single photograph"),
+            publisher=request.args.get("publisher", "Anaglyph & Friends"),
+            card_tone=request.args.get("card_tone", "cream"),
+        )
+        return send_cv_image(output, "stereoscope-card", "png", 100, request.args.get("download", "false").lower() == "true")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/special/autostereogram", methods=["GET"])
+def special_autostereogram():
+    try:
+        scope = request.args.get("scope", "preview").lower()
+        style = request.args.get("style", "random").lower()
+        image, depth = source_and_depth(scope)
+        pattern = None
+        if style == "pattern" and os.path.exists(session_path("pattern.png")):
+            pattern = cv2.imread(session_path("pattern.png"))
+        output = technique_generator.autostereogram(
+            depth,
+            style=style,
+            separation_percent=float(request.args.get("separation", 8.0)),
+            depth_percent=float(request.args.get("depth_strength", 2.3)),
+            dot_size=int(request.args.get("dot_size", 3)),
+            viewing=request.args.get("viewing", "parallel").lower(),
+            pattern=pattern,
+            color=request.args.get("color", "false").lower() == "true",
+        )
+        return send_cv_image(output, f"{style}-stereogram", request.args.get("format", "png"), request.args.get("quality", 95), request.args.get("download", "false").lower() == "true")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/special/wiggle", methods=["GET"])
+def special_wiggle():
+    try:
+        scope = request.args.get("scope", "preview").lower()
+        pop_out, strength = parse_render_parameters()
+        image, depth = source_and_depth(scope, 1100 if scope == "preview" else 10000)
+        frame_count = int(request.args.get("frames", 7))
+        duration = max(40, min(1000, int(request.args.get("duration", 130))))
+        frames = technique_generator.wiggle_frames(image, depth, frame_count, strength, pop_out)
+        pil_frames = [Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)) for frame in frames]
+        buffer = io.BytesIO()
+        pil_frames[0].save(buffer, format="GIF", save_all=True, append_images=pil_frames[1:], duration=duration, loop=0, disposal=2, optimize=False)
+        buffer.seek(0)
+        return send_file(buffer, mimetype="image/gif", as_attachment=request.args.get("download", "false").lower() == "true", download_name="wiggle-gram.gif")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/special/lenticular", methods=["GET"])
+def special_lenticular():
+    try:
+        scope = request.args.get("scope", "preview").lower()
+        pop_out, strength = parse_render_parameters()
+        dpi = int(request.args.get("dpi", 600))
+        lpi = float(request.args.get("lpi", 60.0))
+        width_in = float(request.args.get("width_in", 6.0))
+        height_in = float(request.args.get("height_in", 4.0))
+        views = int(request.args.get("views", 6))
+        slant = float(request.args.get("slant", 0.0))
+        full_w = max(300, int(round(width_in * dpi)))
+        full_h = max(200, int(round(height_in * dpi)))
+        image, depth = source_and_depth("full")
+        if scope == "preview":
+            scale = min(1.0, 1200.0 / max(full_w, full_h))
+            output_w = max(300, int(round(full_w * scale)))
+            output_h = max(200, int(round(full_h * scale)))
+            effective_dpi = max(72, int(round(dpi * scale)))
+        else:
+            output_w, output_h, effective_dpi = full_w, full_h, dpi
+        output = technique_generator.lenticular(image, depth, output_w, output_h, effective_dpi, lpi, views, slant, strength, pop_out)
+        return send_cv_image(output, "lenticular-interlaced", "png", 100, request.args.get("download", "false").lower() == "true")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/lenticular/calibration", methods=["GET"])
+def lenticular_calibration():
+    try:
+        dpi = int(request.args.get("dpi", 600))
+        image = technique_generator.lenticular_calibration(
+            dpi=dpi,
+            nominal_lpi=float(request.args.get("lpi", 60.0)),
+            span=float(request.args.get("span", 0.5)),
+            step=float(request.args.get("step", 0.1)),
+            width_in=float(request.args.get("width_in", 8.0)),
+        )
+        return send_pil_png(image, "lenticular-calibration.png", dpi, True)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
