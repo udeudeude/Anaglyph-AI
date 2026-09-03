@@ -21,6 +21,15 @@ This file tracks ideas that are intentionally **not** part of the current implem
    - eliminate Terminal setup for normal use
    - eventually consider signing/notarization and Intel/Apple Silicon packaging
 
+4. **Independent transparent 3D foreground layers**
+   - import a transparent PNG as a movable object over the base photograph
+   - estimate or import a separate depth map for that foreground object
+   - synthesize the layer stereoscopically as well as the base image
+   - move, scale, rotate, and position the object interactively in the composition
+   - control where the object sits in scene depth so it can appear in front of or behind existing geometry
+   - preserve alpha edges cleanly in generated left/right views and final techniques
+   - potentially support multiple independent 3D layers later
+
 ## Potential future viewing / export techniques
 
 - **MPO / stereo JPEG** for devices and software that store both eye views in one file.
@@ -39,7 +48,7 @@ The current application includes:
   - red/cyan
   - red/green
   - red/blue
-  - full-color, half-color, and grayscale rendering
+  - adjustable color retention from full color through grayscale
 - parallel stereo
 - cross-eyed stereo
 - ChromaDepth
