@@ -30,6 +30,14 @@ This file tracks ideas that are intentionally **not** part of the current implem
    - preserve alpha edges cleanly in generated left/right views and final techniques
    - potentially support multiple independent 3D layers later
 
+## Documentation / onboarding
+
+- **Add helpful screenshots to the README and beginner setup instructions.**
+  - show the GitHub **Code** / clone step
+  - show the two-Terminal backend/frontend setup
+  - show a successfully running local app in the browser
+  - include only screenshots that clarify steps where a new GitHub/Terminal user could otherwise get lost
+
 ## Potential future viewing / export techniques
 
 - **MPO / stereo JPEG** for devices and software that store both eye views in one file.
