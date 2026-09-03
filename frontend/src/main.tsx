@@ -19,6 +19,32 @@ if (localStorage.getItem('aaf-settings-schema') !== settingsSchemaVersion) {
   localStorage.setItem('aaf-settings-schema', settingsSchemaVersion)
 }
 
+// Technique-setting sliders are deliberately staged so the user can move them
+// freely and then choose Apply settings. Discrete controls should feel immediate:
+// selects, checkboxes, number/text fields (on change/blur), and ordinary buttons
+// automatically press the panel's Apply button after React has committed the new
+// draft state. Event delegation also covers the duplicate controls shown in the
+// fullscreen dock without adding a second behavior path.
+const scheduleTechniqueAutoApply = (target: EventTarget | null) => {
+  const element = target instanceof Element ? target : null
+  const panel = element?.closest('.techniqueSettings')
+  if (!panel) return
+  if (element?.matches('input[type="range"]')) return
+  if (element?.closest('.applyTechnique')) return
+
+  window.setTimeout(() => {
+    const button = panel.querySelector<HTMLButtonElement>('.applyTechnique')
+    if (button && !button.disabled) button.click()
+  }, 0)
+}
+
+document.addEventListener('change', (event) => scheduleTechniqueAutoApply(event.target))
+document.addEventListener('click', (event) => {
+  const element = event.target instanceof Element ? event.target : null
+  if (!element?.closest('.techniqueSettings button')) return
+  scheduleTechniqueAutoApply(event.target)
+})
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
