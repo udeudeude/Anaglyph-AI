@@ -1,7 +1,7 @@
 # Anaglyph & Friends
 
-> GitHub repository name: `Anaglyph-AI`  
-> Current application name: **Anaglyph & Friends**
+> GitHub repository: `udeudeude/Anaglyph-and-Friends`  
+> Application name: **Anaglyph & Friends**
 
 Anaglyph & Friends turns one ordinary photograph into a growing collection of stereoscopic, autostereoscopic, viewer-specific, animated, and print-oriented 3D formats using a **Depth Anything V2** monocular depth estimate.
 
@@ -59,8 +59,8 @@ The following puts it on your Desktop. In Terminal:
 
 ```bash
 cd ~/Desktop
-git clone https://github.com/udeudeude/Anaglyph-AI.git
-cd Anaglyph-AI
+git clone https://github.com/udeudeude/Anaglyph-and-Friends.git
+cd Anaglyph-and-Friends
 ```
 
 `git clone` is simply GitHub's way of saying "make a local copy of this project and remember where it came from."
@@ -69,7 +69,7 @@ If you prefer GitHub's **Code -> Download ZIP** button, that can also give you t
 
 ### 3. Add Depth Anything V2 and its AI checkpoint
 
-Anaglyph & Friends uses the official **Depth Anything V2 Small** model. From the `Anaglyph-AI` folder, paste:
+Anaglyph & Friends uses the official **Depth Anything V2 Small** model. From the `Anaglyph-and-Friends` folder, paste:
 
 ```bash
 mkdir -p backend/ai_models
@@ -93,7 +93,7 @@ backend/ai_models/checkpoints/depth_anything_v2_vits.pth
 This part only needs to be **installed once**. In Terminal:
 
 ```bash
-cd ~/Desktop/Anaglyph-AI/backend
+cd ~/Desktop/Anaglyph-and-Friends/backend
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -130,7 +130,7 @@ Open a **second Terminal window**. Leave the backend running in the first one.
 In the new Terminal:
 
 ```bash
-cd ~/Desktop/Anaglyph-AI/frontend
+cd ~/Desktop/Anaglyph-and-Friends/frontend
 npm install
 npm run dev
 ```
@@ -158,7 +158,7 @@ You do **not** repeat the installation steps every time.
 Open one Terminal window for the backend:
 
 ```bash
-cd ~/Desktop/Anaglyph-AI/backend
+cd ~/Desktop/Anaglyph-and-Friends/backend
 source .venv/bin/activate
 python app.py
 ```
@@ -166,7 +166,7 @@ python app.py
 Open a second Terminal window for the frontend:
 
 ```bash
-cd ~/Desktop/Anaglyph-AI/frontend
+cd ~/Desktop/Anaglyph-and-Friends/frontend
 npm run dev
 ```
 
@@ -179,14 +179,14 @@ Use **Control-C** in a Terminal window when you want to stop the server running 
 Stop the backend and frontend with **Control-C**. Then in one Terminal:
 
 ```bash
-cd ~/Desktop/Anaglyph-AI
+cd ~/Desktop/Anaglyph-and-Friends
 git pull
 ```
 
 Usually you can then restart normally. If an update added or changed dependencies, it is safe to refresh them with:
 
 ```bash
-cd ~/Desktop/Anaglyph-AI/backend
+cd ~/Desktop/Anaglyph-and-Friends/backend
 source .venv/bin/activate
 pip install -r requirements.txt
 
@@ -208,7 +208,7 @@ Useful information to include is:
 
 A useful prompt is:
 
-> I am trying to run https://github.com/udeudeude/Anaglyph-AI on my Mac. I am new to GitHub. I got the following error during setup. Please explain what it means and give me only the next step to try: [paste error here]
+> I am trying to run https://github.com/udeudeude/Anaglyph-and-Friends on my Mac. I am new to GitHub. I got the following error during setup. Please explain what it means and give me only the next step to try: [paste error here]
 
 ## Current techniques
 
@@ -248,7 +248,7 @@ A useful prompt is:
   - configurable viewpoint count and frame timing
   - looping GIF output
 
-### Lenticular print
+### Physical print techniques
 
 - **Lenticular 3D interlacing**
   - 60 LPI / 600 DPI / 6-view starting preset
@@ -257,6 +257,14 @@ A useful prompt is:
   - multi-view synthesis from the AI depth map
   - printable **black/white calibration bars** across a user-selected LPI range
   - calibration PNG includes DPI metadata; print it at **100% / Actual Size with all fit-to-page scaling disabled**
+- **AI Relief Phantogram**
+  - separate physical-print workspace using the current source and active depth map
+  - treats the depth map as a height field above a flat print and projects it from two physical eye positions
+  - configurable print size, DPI, viewing distance, eye height, eye separation, maximum relief, and depth direction
+  - red/cyan, red/green, and red/blue output
+  - print-ready PNG with physical DPI metadata
+  - downloadable exact **100 mm calibration ruler** for checking printer scaling
+  - experimental: arbitrary photographs are interpreted as textured reliefs; a traditional calibrated ground-plane mode remains future work
 
 ### Display and compatibility formats
 
@@ -272,6 +280,7 @@ Device- and print-specific information is deliberately hidden until that techniq
 
 The local frontend is a dark desktop-style workspace with:
 
+- top-level **3D Studio**, **Phantogram**, and **View-Master Reel** workspaces;
 - drag-and-drop, file-picker, and clipboard-paste image loading;
 - full-resolution source retention;
 - source and depth-map inspection views;
@@ -315,7 +324,7 @@ The pipeline now separates interactive previews from final rendering:
 4. Cache the ordinary left/right stereo pair for reuse by Red/Cyan, Parallel, Cross-Eyed, Cardboard, stereoscope, and eye-view exports.
 5. Create final static downloads from the full-resolution source or, for physical print techniques, from the requested print dimensions and DPI.
 
-Special formats such as wiggle-grams, autostereograms, ChromaDepth, and lenticular interlacing reuse the same source/depth foundation but have their own rendering modules.
+Special formats such as wiggle-grams, autostereograms, ChromaDepth, lenticular interlacing, and phantograms reuse the same source/depth foundation but have their own rendering modules.
 
 ## Shared stereo controls
 
@@ -354,7 +363,8 @@ The newer technique renderers build on the same depth map:
 - ChromaDepth maps near/far depth into spectral color;
 - autostereograms vary repeating-pattern separation by depth;
 - wiggle-grams synthesize a sequence of virtual camera offsets;
-- lenticular output synthesizes several viewpoints and interlaces them according to printer DPI and calibrated lenticular pitch.
+- lenticular output synthesizes several viewpoints and interlaces them according to printer DPI and calibrated lenticular pitch;
+- AI relief phantograms place the image/depth pair on a millimetre-scale height field, project that relief from independent left/right eye positions onto a physical print plane, and combine the projections as an anaglyph.
 
 ## Local/offline operation - technical reference
 
@@ -401,6 +411,8 @@ Technique renderers:
 - `GET /special/autostereogram?style=random|pattern`
 - `GET /special/lenticular`
 - `GET /lenticular/calibration`
+- `GET /special/phantogram`
+- `GET /phantogram/calibration`
 
 Legacy `/anaglyph` and `/stereo-pair` routes remain for compatibility.
 
@@ -412,15 +424,18 @@ backend/
   depth_map_generator.py
   anaglyph_generator.py
   technique_generator.py       specialized viewer / print / animation renderers
+  phantogram_generator.py      physical-plane AI relief projection
 frontend/src/
   App.tsx
   ImageUpload.tsx
   AnaglyphEditor.tsx           technique-studio orchestration
   TechniqueControls.tsx        conditional device/print/technique settings
+  PhantogramBuilder.tsx        physical phantogram workspace
+  ViewMasterBuilder.tsx        seven-scene reel workspace
   techniques.ts                technique definitions and starting presets
 ROADMAP.md                      deliberately deferred and potential future techniques
 ```
 
 ## Future work
 
-See **[ROADMAP.md](ROADMAP.md)**. Larger deliberately deferred projects include editable depth maps, phantograms, packaging as a double-clickable macOS application, and layered 3D compositing. Other possible additions include MPO/stereo JPEG, Pulfrich animation, additional display/viewer profiles, additional historical stereograph templates, and saved lenticular calibration profiles.
+See **[ROADMAP.md](ROADMAP.md)**. Larger deliberately deferred projects include editable depth maps, packaging as a double-clickable macOS application, and layered 3D compositing. Phantogram follow-up work now centers on a traditional calibrated ground-plane mode and physical-print testing. Other possible additions include MPO/stereo JPEG, Pulfrich animation, additional display/viewer profiles, additional historical stereograph templates, and saved lenticular calibration profiles.
