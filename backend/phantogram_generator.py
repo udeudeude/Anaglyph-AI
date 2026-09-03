@@ -1,0 +1,50 @@
+"""Physical-plane phantogram projection.
+
+Coordinates are millimetres. The print lies on z=0, x spans its width, and y runs
+from the near edge toward the far edge. The viewer is at y=-view_distance.
+Depth is interpreted as relief height above the print, not as an arbitrary 2-D warp.
+"""
+import cv2
+import numpy as np
+
+
+def project_relief(image, depth, print_width_mm, print_height_mm, view_distance_mm,
+                   eye_height_mm, eye_x_mm, relief_mm, reverse_depth=False):
+    h, w = image.shape[:2]
+    if depth.shape != (h, w):
+        depth = cv2.resize(depth.astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
+    d = np.clip(depth.astype(np.float32), 0.0, 1.0)
+    if reverse_depth:
+        d = 1.0 - d
+    z = d * max(0.0, float(relief_mm))
+    xs = np.linspace(-print_width_mm / 2.0, print_width_mm / 2.0, w, dtype=np.float32)[None, :]
+    ys = np.linspace(0.0, print_height_mm, h, dtype=np.float32)[:, None]
+    eye_y = -max(1.0, float(view_distance_mm)); eye_z = max(float(relief_mm) + 1.0, float(eye_height_mm))
+    # Ray from eye through each relief point intersects physical print plane z=0.
+    t = eye_z / np.maximum(1e-6, eye_z - z)
+    px = eye_x_mm + t * (xs - eye_x_mm)
+    py = eye_y + t * (ys - eye_y)
+    u = np.rint((px / print_width_mm + 0.5) * (w - 1)).astype(np.int32)
+    v = np.rint((py / print_height_mm) * (h - 1)).astype(np.int32)
+    out = np.full_like(image, 255)
+    # Painter's algorithm: higher relief is nearer the eye and wins collisions.
+    order = np.argsort(z.ravel())
+    src_y, src_x = np.indices((h, w)); flat_y=src_y.ravel()[order]; flat_x=src_x.ravel()[order]
+    dest_x=u.ravel()[order]; dest_y=v.ravel()[order]
+    valid=(dest_x>=0)&(dest_x<w)&(dest_y>=0)&(dest_y<h)
+    out[dest_y[valid], dest_x[valid]] = image[flat_y[valid], flat_x[valid]]
+    mask=np.all(out==255,axis=2).astype(np.uint8)*255
+    if np.any(mask): out=cv2.inpaint(out,mask,2,cv2.INPAINT_TELEA)
+    return out
+
+
+def render_phantogram(image, depth, print_width_mm=254.0, print_height_mm=190.5,
+                       view_distance_mm=508.0, eye_height_mm=355.6, ipd_mm=63.0,
+                       relief_mm=35.0, glasses='red-cyan', reverse_depth=False):
+    left=project_relief(image,depth,print_width_mm,print_height_mm,view_distance_mm,eye_height_mm,-ipd_mm/2,relief_mm,reverse_depth)
+    right=project_relief(image,depth,print_width_mm,print_height_mm,view_distance_mm,eye_height_mm,ipd_mm/2,relief_mm,reverse_depth)
+    out=np.zeros_like(image)
+    if glasses=='red-green': out[:,:,2]=left[:,:,2]; out[:,:,1]=right[:,:,1]
+    elif glasses=='red-blue': out[:,:,2]=left[:,:,2]; out[:,:,0]=right[:,:,0]
+    else: out[:,:,2]=left[:,:,2]; out[:,:,1]=right[:,:,1]; out[:,:,0]=right[:,:,0]
+    return out, left, right
