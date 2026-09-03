@@ -73,6 +73,17 @@ function TechniqueControls({ technique, settings, setSettings, onApply, dirty, d
 
     let body = null;
 
+    if (technique === 'anaglyph') {
+        const s = settings.anaglyph;
+        body = <>
+            <div className="techniqueGrid two">
+                <label><span>Glasses / filter pair</span><select value={s.glasses} onChange={(e) => update('anaglyph', { glasses: e.target.value as typeof s.glasses })}><option value="red-cyan">Red / Cyan</option><option value="red-green">Red / Green</option><option value="red-blue">Red / Blue</option></select></label>
+                <label><span>Color rendering</span><select value={s.colorMode} onChange={(e) => update('anaglyph', { colorMode: e.target.value as typeof s.colorMode })}><option value="full">Full color</option><option value="half">Half color</option><option value="gray">Grayscale</option></select></label>
+            </div>
+            <p className="techniqueHint">Red/cyan remains the modern default. Red/green and red/blue support older glasses and historical anaglyph material. Half color uses luminance for the red eye to reduce strong red-object conflicts while retaining more color in the other eye.</p>
+        </>;
+    }
+
     if (technique === 'chromadepth') {
         const s = settings.chromadepth;
         body = <>
