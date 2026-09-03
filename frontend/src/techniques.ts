@@ -8,9 +8,15 @@ export type TechniqueId =
     | 'wiggle'
     | 'randomdot'
     | 'pattern'
-    | 'lenticular';
+    | 'lenticular'
+    | 'topbottom'
+    | 'halfsbs'
+    | 'rowinterlaced'
+    | 'columninterlaced'
+    | 'checkerboard';
 
 export type TechniqueSettings = {
+    anaglyph: { glasses: 'red-cyan' | 'red-green' | 'red-blue'; colorMode: 'full' | 'half' | 'gray' };
     chromadepth: { colorStrength: number; reverse: boolean };
     cardboard: {
         preset: 'cardboard' | 'generic' | 'custom';
@@ -34,6 +40,7 @@ export type TechniqueSettings = {
 };
 
 export const defaultTechniqueSettings: TechniqueSettings = {
+    anaglyph: { glasses: 'red-cyan', colorMode: 'full' },
     chromadepth: { colorStrength: 90, reverse: false },
     cardboard: {
         preset: 'cardboard',
@@ -74,7 +81,7 @@ export const defaultTechniqueSettings: TechniqueSettings = {
 };
 
 export const techniqueInfo: Record<TechniqueId, {label: string; description: string; family: string}> = {
-    anaglyph: { label: 'Red / Cyan', description: 'Color-channel stereo for red-cyan glasses.', family: 'Glasses' },
+    anaglyph: { label: 'Anaglyph', description: 'Color-filter stereo for red/cyan, red/green, or red/blue glasses.', family: 'Glasses' },
     parallel: { label: 'Parallel', description: 'Left eye on left for relaxed / wall-eyed free viewing.', family: 'Free-view' },
     cross: { label: 'Cross-Eyed', description: 'Stereo pair swapped for cross-eyed free viewing.', family: 'Free-view' },
     chromadepth: { label: 'ChromaDepth', description: 'Encodes depth as spectral color for ChromaDepth glasses.', family: 'Glasses' },
@@ -84,10 +91,16 @@ export const techniqueInfo: Record<TechniqueId, {label: string; description: str
     randomdot: { label: 'Random-Dot Stereogram', description: 'Single-image autostereogram generated entirely from depth.', family: 'Autostereograms' },
     pattern: { label: 'Pattern Stereogram', description: 'Autostereogram using a repeating texture or your own pattern.', family: 'Autostereograms' },
     lenticular: { label: 'Lenticular 3D', description: 'Multi-view interlaced print matched to lenticular sheet and printer.', family: 'Print' },
+    topbottom: { label: 'Top / Bottom Stereo', description: 'Full left and right frames stacked vertically for compatible displays and video workflows.', family: 'Display compatibility' },
+    halfsbs: { label: 'Half-Width Side-by-Side', description: 'Each eye compressed to half width in one standard-size frame.', family: 'Display compatibility' },
+    rowinterlaced: { label: 'Row-Interlaced', description: 'Alternating image rows carry left and right eye views.', family: 'Display compatibility' },
+    columninterlaced: { label: 'Column-Interlaced', description: 'Alternating image columns carry left and right eye views.', family: 'Display compatibility' },
+    checkerboard: { label: 'Checkerboard Stereo', description: 'Left and right eye samples alternate in a checkerboard pattern.', family: 'Display compatibility' },
 };
 
 export const stereoBasedTechniques = new Set<TechniqueId>([
     'anaglyph', 'parallel', 'cross', 'cardboard', 'stereoscope', 'wiggle', 'lenticular',
+    'topbottom', 'halfsbs', 'rowinterlaced', 'columninterlaced', 'checkerboard',
 ]);
 
 export function mergeStoredSettings(raw: string | null): TechniqueSettings {
@@ -95,9 +108,9 @@ export function mergeStoredSettings(raw: string | null): TechniqueSettings {
     try {
         const parsed = JSON.parse(raw);
         const storedWiggle = { ...defaultTechniqueSettings.wiggle, ...(parsed.wiggle || {}) };
-        // 130 ms was the first-release default. Migrate that untouched legacy value to the quicker current default.
         if (parsed.wiggle?.duration === 130) storedWiggle.duration = defaultTechniqueSettings.wiggle.duration;
         return {
+            anaglyph: { ...defaultTechniqueSettings.anaglyph, ...(parsed.anaglyph || {}) },
             chromadepth: { ...defaultTechniqueSettings.chromadepth, ...(parsed.chromadepth || {}) },
             cardboard: { ...defaultTechniqueSettings.cardboard, ...(parsed.cardboard || {}) },
             stereoscope: { ...defaultTechniqueSettings.stereoscope, ...(parsed.stereoscope || {}) },
