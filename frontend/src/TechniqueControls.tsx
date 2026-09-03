@@ -102,7 +102,7 @@ function TechniqueControls({ technique, settings, setSettings, onApply, dirty, d
     if (technique === 'stereoscope') {
         const s = settings.stereoscope;
         body = <>
-            <div className="presetRow"><label>Card preset<select value={s.preset} onChange={(e) => applyStereoscopePreset(e.target.value as typeof s.preset)}><option value="holmes">Holmes-style 7 × 3.5 in stereograph</option><option value="custom">Custom card</option></select></label></div>
+            <div className="presetRow"><label>Card preset<select value={s.preset} onChange={(e) => applyStereoscopePreset(e.target.value as typeof s.preset)}><option value="holmes">Historic 7 × 3.5 in stereograph</option><option value="custom">Custom card</option></select></label></div>
             <div className="techniqueGrid four">
                 <label><span>Print DPI</span><input type="number" min="72" max="1200" value={s.dpi} onChange={(e) => update('stereoscope', { dpi: numberValue(e.target.value, 300), preset: 'custom' })} /></label>
                 <label><span>Card width</span><input type="number" step="0.05" value={s.cardWidth} onChange={(e) => update('stereoscope', { cardWidth: numberValue(e.target.value, 7), preset: 'custom' })} /><small>in</small></label>
@@ -111,23 +111,27 @@ function TechniqueControls({ technique, settings, setSettings, onApply, dirty, d
                 <label><span>Image width</span><input type="number" step="0.05" value={s.imageWidth} onChange={(e) => update('stereoscope', { imageWidth: numberValue(e.target.value, 2.85), preset: 'custom' })} /><small>in</small></label>
                 <label><span>Image height</span><input type="number" step="0.05" value={s.imageHeight} onChange={(e) => update('stereoscope', { imageHeight: numberValue(e.target.value, 2.55), preset: 'custom' })} /><small>in</small></label>
                 <label><span>Top arch depth</span><input type="number" step="0.01" value={s.arch} onChange={(e) => update('stereoscope', { arch: numberValue(e.target.value, .22), preset: 'custom' })} /><small>in</small></label>
-                <label><span>Mount color</span><select value={s.cardTone} onChange={(e) => update('stereoscope', { cardTone: e.target.value as typeof s.cardTone })}><option value="cream">Cream</option><option value="tan">Tan</option><option value="gray">Gray</option><option value="black">Black</option><option value="white">White</option></select></label>
+                <label><span>Mount color</span><select value={s.cardTone} onChange={(e) => update('stereoscope', { cardTone: e.target.value as typeof s.cardTone })}><option value="cream">Historic buff</option><option value="tan">Deep tan</option><option value="gray">Gray</option><option value="black">Black</option><option value="white">White</option></select></label>
             </div>
             <div className="textFields">
                 <label>Title<input type="text" maxLength={100} value={s.title} onChange={(e) => update('stereoscope', { title: e.target.value })} /></label>
                 <label>Caption<input type="text" maxLength={160} value={s.caption} onChange={(e) => update('stereoscope', { caption: e.target.value })} /></label>
                 <label>Publisher / credit<input type="text" maxLength={120} value={s.publisher} onChange={(e) => update('stereoscope', { publisher: e.target.value })} /></label>
             </div>
-            <p className="techniqueHint">The default starts from the common 7 × 3.5 inch stereograph-card format and gives both photographs a traditional arched top.</p>
+            <p className="techniqueHint">The historic preset uses a warm buff mount, rounded albumen-style arches, a thin photograph keyline, and period-style serif labeling on the common 7 × 3.5 inch card.</p>
         </>;
     }
 
     if (technique === 'wiggle') {
         const s = settings.wiggle;
-        body = <div className="techniqueGrid two">
-            <label><span>Unique viewpoints</span><input type="number" min="2" max="15" value={s.frames} onChange={(e) => update('wiggle', { frames: numberValue(e.target.value, 7) })} /><small>plays forward and back</small></label>
-            <label><span>Frame duration</span><input type="number" min="40" max="1000" step="10" value={s.duration} onChange={(e) => update('wiggle', { duration: numberValue(e.target.value, 130) })} /><small>milliseconds</small></label>
-        </div>;
+        const fps = (1000 / Math.max(1, s.duration)).toFixed(1);
+        body = <>
+            <div className="techniqueGrid two">
+                <label><span>Unique viewpoints</span><input type="number" min="2" max="15" value={s.frames} onChange={(e) => update('wiggle', { frames: numberValue(e.target.value, 7) })} /><small>plays forward and back</small></label>
+                <label><span>Frame time</span><input type="number" min="40" max="300" step="5" value={s.duration} onChange={(e) => update('wiggle', { duration: numberValue(e.target.value, 75) })} /><small>ms · about {fps} fps</small></label>
+            </div>
+            <p className="techniqueHint">Default playback is now quicker. Downloaded GIFs use a playback-optimized image size so large source files do not make GIF viewers miss their intended frame timing.</p>
+        </>;
     }
 
     if (technique === 'randomdot' || technique === 'pattern') {
@@ -137,11 +141,12 @@ function TechniqueControls({ technique, settings, setSettings, onApply, dirty, d
                 <label><span>Viewing method</span><select value={s.viewing} onChange={(e) => update('autostereogram', { viewing: e.target.value as typeof s.viewing })}><option value="parallel">Parallel / wall-eyed</option><option value="cross">Cross-eyed</option></select></label>
                 <label><span>Base separation</span><input type="number" min="3" max="20" step="0.1" value={s.separation} onChange={(e) => update('autostereogram', { separation: numberValue(e.target.value, 8) })} /><small>% of image width</small></label>
                 <label><span>Depth strength</span><input type="number" min="0.2" max="6" step="0.1" value={s.depthStrength} onChange={(e) => update('autostereogram', { depthStrength: numberValue(e.target.value, 2.3) })} /><small>% of image width</small></label>
+                <label className="checkField"><span>Fusion guides</span><div><input type="checkbox" checked={s.guides} onChange={(e) => update('autostereogram', { guides: e.target.checked })} /> Show two guide dots above image</div></label>
                 {technique === 'randomdot' && <label><span>Dot size</span><input type="number" min="1" max="12" value={s.dotSize} onChange={(e) => update('autostereogram', { dotSize: numberValue(e.target.value, 3) })} /><small>pixels at preview scale</small></label>}
                 {technique === 'randomdot' && <label className="checkField"><span>Dot palette</span><div><input type="checkbox" checked={s.color} onChange={(e) => update('autostereogram', { color: e.target.checked })} /> Use colored dots</div></label>}
             </div>
-            {technique === 'pattern' && <div className="patternUpload"><label>Custom repeating pattern<input type="file" accept="image/*" onChange={uploadPattern} /></label><span>{patternStatus || 'Optional. A built-in geometric texture is used until you upload one.'}</span></div>}
-            <p className="techniqueHint">These are single-image autostereograms. The depth map controls local pattern separation rather than producing a left/right pair.</p>
+            {technique === 'pattern' && <div className="patternUpload"><label>Custom repeating pattern<input type="file" accept="image/*" onChange={uploadPattern} /></label><span>{patternStatus || 'Optional. A built-in houndstooth texture is used until you upload one.'}</span></div>}
+            <p className="techniqueHint">These are single-image autostereograms. The two guide dots are separated by one base pattern repeat. Fuse them into a central dot using the selected viewing method.</p>
         </>;
     }
 
