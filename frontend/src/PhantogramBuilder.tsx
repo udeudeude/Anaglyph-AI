@@ -61,6 +61,11 @@ function PhantogramBuilder({ isDepthMapReady, setProcessingStage }: Props) {
         reverse_depth: String(settings.reverseDepth),
     }), [settings])
 
+    const presetValue = settings.widthIn === 8 && settings.heightIn === 6 ? '8x6'
+        : settings.widthIn === 10 && settings.heightIn === 7.5 ? '10x7.5'
+        : settings.widthIn === 7 && settings.heightIn === 5 ? '7x5' : 'custom'
+    const glassesLabel: Record<Glasses, string> = { 'red-cyan': 'Red / Cyan', 'red-green': 'Red / Green', 'red-blue': 'Red / Blue' }
+
     useEffect(() => {
         localStorage.setItem('aaf-phantogram-settings', JSON.stringify(settings))
     }, [settings])
@@ -149,7 +154,7 @@ function PhantogramBuilder({ isDepthMapReady, setProcessingStage }: Props) {
             <section className="phantogramControls">
                 <div className="phantogramControlHeader">
                     <div><span className="panelLabel">PRINT GEOMETRY</span><strong>Physical setup</strong></div>
-                    <select defaultValue="8x6" onChange={e => setPreset(e.target.value)} aria-label="Print size preset">
+                    <select value={presetValue} onChange={e => setPreset(e.target.value)} aria-label="Print size preset">
                         <option value="8x6">8 × 6 in</option>
                         <option value="10x7.5">10 × 7.5 in</option>
                         <option value="7x5">7 × 5 in</option>
@@ -160,7 +165,7 @@ function PhantogramBuilder({ isDepthMapReady, setProcessingStage }: Props) {
                 <div className="phantogramFields">
                     <label><span>Print width</span><input type="number" min="2" max="16" step="0.1" value={settings.widthIn} onChange={e => patch({ widthIn: Number(e.target.value) || 8 })}/><small>in</small></label>
                     <label><span>Print height</span><input type="number" min="2" max="16" step="0.1" value={settings.heightIn} onChange={e => patch({ heightIn: Number(e.target.value) || 6 })}/><small>in</small></label>
-                    <label><span>Final print resolution</span><select value={settings.dpi} onChange={e => patch({ dpi: Number(e.target.value) })}><option value="150">150 DPI</option><option value="300">300 DPI</option><option value="600">600 DPI</option></select></label>
+                    <label><span>Final print resolution</span><select value={settings.dpi} onChange={e => patch({ dpi: Number(e.target.value) })}><option value="150">150 DPI</option><option value="300">300 DPI</option><option value="600">600 DPI · slower</option></select></label>
                     <label><span>Glasses</span><select value={settings.glasses} onChange={e => patch({ glasses: e.target.value as Glasses })}><option value="red-cyan">Red / Cyan</option><option value="red-green">Red / Green</option><option value="red-blue">Red / Blue</option></select></label>
                     <label><span>Eyes beyond near edge</span><input type="number" min="4" max="72" step="0.5" value={settings.viewDistanceIn} onChange={e => patch({ viewDistanceIn: Number(e.target.value) || 20 })}/><small>in</small></label>
                     <label><span>Eye height above print</span><input type="number" min="4" max="72" step="0.5" value={settings.eyeHeightIn} onChange={e => patch({ eyeHeightIn: Number(e.target.value) || 14 })}/><small>in</small></label>
@@ -177,7 +182,7 @@ function PhantogramBuilder({ isDepthMapReady, setProcessingStage }: Props) {
             </section>
 
             <section className="phantogramPreviewCard">
-                <div className="phantogramPreviewHeader"><div><span className="panelLabel">PREVIEW</span><strong>{settings.glasses.replace('-', ' / ')}</strong></div><span>{loading ? 'Rendering…' : isDepthMapReady ? 'Ready' : 'Waiting for source'}</span></div>
+                <div className="phantogramPreviewHeader"><div><span className="panelLabel">PREVIEW</span><strong>{glassesLabel[settings.glasses]}</strong></div><span>{loading ? 'Rendering…' : isDepthMapReady ? 'Ready' : 'Waiting for source'}</span></div>
                 <div className="phantogramPreview">
                     {previewUrl ? <img src={previewUrl} alt="Phantogram preview"/> : <div><strong>Phantogram preview</strong><span>The deliberately distorted print image will appear here.</span></div>}
                 </div>
