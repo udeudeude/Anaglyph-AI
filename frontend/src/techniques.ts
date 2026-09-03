@@ -16,7 +16,7 @@ export type TechniqueId =
     | 'checkerboard';
 
 export type TechniqueSettings = {
-    anaglyph: { glasses: 'red-cyan' | 'red-green' | 'red-blue'; colorMode: 'full' | 'half' | 'gray' };
+    anaglyph: { glasses: 'red-cyan' | 'red-green' | 'red-blue'; colorMode: string };
     chromadepth: { colorStrength: number; reverse: boolean };
     cardboard: {
         preset: 'cardboard' | 'generic' | 'custom';
@@ -82,8 +82,8 @@ export const defaultTechniqueSettings: TechniqueSettings = {
 
 export const techniqueInfo: Record<TechniqueId, {label: string; description: string; family: string}> = {
     anaglyph: { label: 'Anaglyph', description: 'Color-filter stereo for red/cyan, red/green, or red/blue glasses.', family: 'Glasses' },
-    parallel: { label: 'Parallel', description: 'Left eye on left for relaxed / wall-eyed free viewing.', family: 'Free-view' },
-    cross: { label: 'Cross-Eyed', description: 'Stereo pair swapped for cross-eyed free viewing.', family: 'Free-view' },
+    parallel: { label: 'Parallel', description: 'Left eye on left for relaxed / wall-eyed viewing without glasses.', family: 'Unaided stereo' },
+    cross: { label: 'Cross-Eyed', description: 'Stereo pair swapped for cross-eyed viewing without glasses.', family: 'Unaided stereo' },
     chromadepth: { label: 'ChromaDepth', description: 'Encodes depth as spectral color for ChromaDepth glasses.', family: 'Glasses' },
     cardboard: { label: 'Cardboard / Phone Viewer', description: 'Side-by-side stereo positioned for a phone VR viewer.', family: 'Viewers' },
     stereoscope: { label: 'Traditional Stereoscope Card', description: 'Printable arched stereograph card with mount and text.', family: 'Viewers' },
@@ -109,8 +109,10 @@ export function mergeStoredSettings(raw: string | null): TechniqueSettings {
         const parsed = JSON.parse(raw);
         const storedWiggle = { ...defaultTechniqueSettings.wiggle, ...(parsed.wiggle || {}) };
         if (parsed.wiggle?.duration === 130) storedWiggle.duration = defaultTechniqueSettings.wiggle.duration;
+        const storedAnaglyph = { ...defaultTechniqueSettings.anaglyph, ...(parsed.anaglyph || {}) };
+        if (typeof storedAnaglyph.colorMode === 'number') storedAnaglyph.colorMode = String(storedAnaglyph.colorMode);
         return {
-            anaglyph: { ...defaultTechniqueSettings.anaglyph, ...(parsed.anaglyph || {}) },
+            anaglyph: storedAnaglyph,
             chromadepth: { ...defaultTechniqueSettings.chromadepth, ...(parsed.chromadepth || {}) },
             cardboard: { ...defaultTechniqueSettings.cardboard, ...(parsed.cardboard || {}) },
             stereoscope: { ...defaultTechniqueSettings.stereoscope, ...(parsed.stereoscope || {}) },
