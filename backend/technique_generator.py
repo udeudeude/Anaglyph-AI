@@ -71,9 +71,11 @@ class TechniqueGenerator:
         return image, np.clip(depth, 0.0, 1.0).astype(np.float32)
 
     def chromadepth(self, image: np.ndarray, depth: np.ndarray, color_strength: float = 0.9, reverse: bool = False) -> np.ndarray:
-        depth_use = 1.0 - depth if reverse else depth
+        # Depth Anything V2's relative disparity is larger for nearer subjects.
+        # ChromaDepth convention maps near toward red and far toward blue.
+        depth_use = depth if reverse else 1.0 - depth
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.float32)
-        # OpenCV hue: red=0, blue≈120. Depth map is 0 near, 1 far.
+        # OpenCV hue: red=0, blue≈120.
         target_hue = np.clip(depth_use * 120.0, 0, 120)
         amount = max(0.0, min(1.0, color_strength))
         hsv[:, :, 0] = target_hue
@@ -116,12 +118,19 @@ class TechniqueGenerator:
         return canvas
 
     @staticmethod
-    def _font(size: int, bold: bool = False):
-        candidates = [
-            "/System/Library/Fonts/Supplemental/Arial Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Arial.ttf",
-            "/System/Library/Fonts/Helvetica.ttc",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        ]
+    def _font(size: int, bold: bool = False, serif: bool = False):
+        if serif:
+            candidates = [
+                "/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+                "/System/Library/Fonts/Supplemental/Georgia Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Georgia.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+            ]
+        else:
+            candidates = [
+                "/System/Library/Fonts/Supplemental/Arial Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Arial.ttf",
+                "/System/Library/Fonts/Helvetica.ttc",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ]
         for path in candidates:
             if os.path.exists(path):
                 try:
@@ -131,18 +140,38 @@ class TechniqueGenerator:
         return ImageFont.load_default()
 
     @staticmethod
-    def _arched_mask(width: int, height: int, arch_depth: int) -> Image.Image:
+    def _arched_top(width: int, arch_depth: int):
+        """Historic-style shallow elliptical crown: broad top with rounded shoulders."""
+        if arch_depth <= 0:
+            return [(x, 0) for x in range(width)]
+        points = []
+        for x in range(width):
+            normalized = abs((2.0 * x / max(1, width - 1)) - 1.0)
+            curve = 1.0 - math.sqrt(max(0.0, 1.0 - normalized * normalized))
+            points.append((x, int(round(arch_depth * curve))))
+        return points
+
+    @classmethod
+    def _arched_mask(cls, width: int, height: int, arch_depth: int) -> Image.Image:
         mask = Image.new("L", (width, height), 0)
         draw = ImageDraw.Draw(mask)
         arch_depth = max(0, min(height // 3, arch_depth))
-        points = []
-        for x in range(width):
-            normalized = (2.0 * x / max(1, width - 1)) - 1.0
-            y = int(round(arch_depth * normalized * normalized))
-            points.append((x, y))
+        points = cls._arched_top(width, arch_depth)
         points.extend([(width - 1, height - 1), (0, height - 1)])
         draw.polygon(points, fill=255)
         return mask
+
+    @staticmethod
+    def _paper_background(width: int, height: int, color):
+        """Very subtle fixed paper grain so the mount reads as card rather than a flat UI rectangle."""
+        base = np.empty((height, width, 3), dtype=np.int16)
+        base[:] = np.array(color, dtype=np.int16)
+        if max(color) < 80:
+            return Image.fromarray(np.clip(base, 0, 255).astype(np.uint8), "RGB")
+        rng = np.random.default_rng(1862)
+        grain = rng.normal(0.0, 1.6, size=(height, width, 1))
+        base = np.clip(base + grain, 0, 255).astype(np.uint8)
+        return Image.fromarray(base, "RGB")
 
     def stereoscope_card(
         self,
@@ -168,28 +197,44 @@ class TechniqueGenerator:
         gap = max(0, int(round(gap_in * dpi)))
         arch = max(0, int(round(arch_in * dpi)))
         tones = {
-            "cream": (235, 224, 198),
-            "tan": (205, 184, 148),
-            "gray": (190, 190, 185),
-            "black": (28, 28, 28),
-            "white": (245, 245, 242),
+            # Buff/yellow mounts and arched albumen prints were common on 1860s stereographs.
+            "cream": (229, 213, 170),
+            "tan": (194, 167, 123),
+            "gray": (188, 187, 179),
+            "black": (28, 27, 25),
+            "white": (244, 241, 232),
         }
         bg = tones.get(card_tone.lower(), tones["cream"])
-        fg = (235, 235, 235) if card_tone.lower() == "black" else (32, 28, 24)
-        card = Image.new("RGB", (cw, ch), bg)
+        fg = (232, 226, 211) if card_tone.lower() == "black" else (48, 37, 25)
+        rule = (150, 128, 92) if card_tone.lower() != "black" else (110, 103, 92)
+        keyline = (58, 43, 27) if card_tone.lower() != "black" else (205, 198, 183)
+        card = self._paper_background(cw, ch, bg)
+        draw = ImageDraw.Draw(card)
+
+        # Printed card edge rule, restrained enough to resemble a mount rather than a modern border.
+        inset = max(2, int(round(0.045 * dpi)))
+        draw.rectangle((inset, inset, cw - inset - 1, ch - inset - 1), outline=rule, width=max(1, dpi // 300))
+
         total_width = iw * 2 + gap
         x0 = max(0, (cw - total_width) // 2)
-        y0 = max(0, int(round(0.14 * dpi)))
+        y0 = max(inset + 2, int(round(0.16 * dpi)))
         mask = self._arched_mask(iw, ih, arch)
+        arch_points = self._arched_top(iw, min(ih // 3, arch))
+        outline_width = max(1, int(round(dpi / 180)))
+
         for source, x in ((left, x0), (right, x0 + iw + gap)):
             rgb = cv2.cvtColor(source, cv2.COLOR_BGR2RGB)
             fitted = ImageOps.fit(Image.fromarray(rgb), (iw, ih), method=Image.Resampling.LANCZOS)
             card.paste(fitted, (x, y0), mask)
-        draw = ImageDraw.Draw(card)
-        text_top = min(ch - int(0.55 * dpi), y0 + ih + int(0.08 * dpi))
-        title_font = self._font(int(0.14 * dpi), bold=True)
-        caption_font = self._font(int(0.105 * dpi))
-        publisher_font = self._font(int(0.085 * dpi))
+            translated_top = [(x + px, y0 + py) for px, py in arch_points]
+            outline = translated_top + [(x + iw - 1, y0 + ih - 1), (x, y0 + ih - 1), translated_top[0]]
+            draw.line(outline, fill=keyline, width=outline_width, joint="curve")
+
+        text_top = min(ch - int(0.60 * dpi), y0 + ih + int(0.08 * dpi))
+        title_font = self._font(int(0.135 * dpi), bold=True, serif=True)
+        caption_font = self._font(int(0.095 * dpi), serif=True)
+        publisher_font = self._font(int(0.075 * dpi), serif=True)
+        number_font = self._font(int(0.072 * dpi), serif=True)
 
         def centered(text: str, y: int, font):
             if not text:
@@ -198,23 +243,54 @@ class TechniqueGenerator:
             draw.text(((cw - (box[2] - box[0])) / 2, y), text, fill=fg, font=font)
 
         centered(title[:100], text_top, title_font)
-        centered(caption[:160], text_top + int(0.19 * dpi), caption_font)
-        centered(publisher[:120], text_top + int(0.37 * dpi), publisher_font)
+        centered(caption[:160], text_top + int(0.17 * dpi), caption_font)
+        lower_y = min(ch - int(0.16 * dpi), text_top + int(0.34 * dpi))
+        draw.text((x0, lower_y), "No. 1", fill=fg, font=number_font)
+        if publisher:
+            text = publisher[:120]
+            box = draw.textbbox((0, 0), text, font=publisher_font)
+            draw.text((cw - x0 - (box[2] - box[0]), lower_y), text, fill=fg, font=publisher_font)
         return cv2.cvtColor(np.array(card), cv2.COLOR_RGB2BGR)
 
     @staticmethod
-    def _default_pattern(height: int, width: int, style: str = "geometric") -> np.ndarray:
+    def _default_pattern(height: int, width: int, style: str = "houndstooth") -> np.ndarray:
         if style == "checker":
             tile = max(4, width // 12)
             yy, xx = np.indices((height, width))
             checker = ((xx // tile + yy // tile) % 2) * 255
             return cv2.cvtColor(checker.astype(np.uint8), cv2.COLOR_GRAY2BGR)
-        rng = np.random.default_rng(1977)
-        block = max(3, width // 28)
-        small_h = max(1, math.ceil(height / block))
-        small_w = max(1, math.ceil(width / block))
-        colors = rng.integers(40, 256, size=(small_h, small_w, 3), dtype=np.uint8)
-        return cv2.resize(colors, (width, height), interpolation=cv2.INTER_NEAREST)
+
+        # A high-contrast houndstooth-inspired textile tile gives the eye more stable
+        # repeat landmarks than the old random geometric blocks while remaining unobtrusive.
+        unit = 48
+        tile = np.full((unit, unit, 3), (224, 218, 201), dtype=np.uint8)
+        dark = (43, 48, 55)
+        accent = (98, 91, 78)
+        shapes = [
+            np.array([(0, 0), (20, 0), (20, 7), (29, 7), (29, 15), (21, 15), (21, 24), (13, 24), (13, 16), (0, 16)], dtype=np.int32),
+            np.array([(24, 24), (44, 24), (44, 31), (48, 31), (48, 40), (45, 40), (45, 48), (37, 48), (37, 40), (24, 40)], dtype=np.int32),
+        ]
+        for shape in shapes:
+            cv2.fillPoly(tile, [shape], dark)
+        cv2.line(tile, (0, 24), (24, 48), accent, 2)
+        cv2.line(tile, (24, 0), (48, 24), accent, 2)
+        repeats_y = max(1, math.ceil(height / unit))
+        repeats_x = max(1, math.ceil(width / unit))
+        tiled = np.tile(tile, (repeats_y, repeats_x, 1))
+        return tiled[:height, :width]
+
+    @staticmethod
+    def _add_fusion_guides(image: np.ndarray, separation: int) -> np.ndarray:
+        height, width = image.shape[:2]
+        guide_h = max(38, min(96, int(round(height * 0.085))))
+        bar = np.full((guide_h, width, 3), 244, dtype=np.uint8)
+        center = width // 2
+        half_sep = separation // 2
+        y = guide_h // 2
+        radius = max(4, min(10, width // 180))
+        cv2.circle(bar, (max(radius + 2, center - half_sep), y), radius, (24, 24, 24), -1, lineType=cv2.LINE_AA)
+        cv2.circle(bar, (min(width - radius - 2, center + half_sep), y), radius, (24, 24, 24), -1, lineType=cv2.LINE_AA)
+        return np.vstack((bar, image))
 
     def autostereogram(
         self,
@@ -233,7 +309,7 @@ class TechniqueGenerator:
         max_shift = min(max_shift, separation - 2)
         if style == "pattern":
             if pattern is None:
-                base = self._default_pattern(height, separation, "geometric")
+                base = self._default_pattern(height, separation, "houndstooth")
             else:
                 source_h, source_w = pattern.shape[:2]
                 scale = max(height / source_h, separation / source_w)
@@ -250,15 +326,23 @@ class TechniqueGenerator:
                 seed = (rng.integers(0, 2, size=(small_h, small_w, 1), dtype=np.uint8) * 255)
                 seed = np.repeat(seed, 3, axis=2)
             base = cv2.resize(seed, (separation, height), interpolation=cv2.INTER_NEAREST)
+
         output = np.zeros((height, width, 3), dtype=np.uint8)
         output[:, :separation] = base
         rows = np.arange(height)
-        depth_use = 1.0 - depth if viewing == "cross" else depth
+
+        # Depth Anything V2 returns larger relative-disparity values for nearer subjects.
+        # In parallel viewing, near features need the smaller repeat separation. Cross-eyed
+        # viewing reverses the perceived depth sign, so invert the depth map for that mode.
+        viewing_mode = "cross" if viewing.startswith("cross") else "parallel"
+        depth_use = 1.0 - depth if viewing_mode == "cross" else depth
         for x in range(separation, width):
-            sep = separation - np.rint((1.0 - depth_use[:, x]) * max_shift).astype(np.int32)
+            sep = separation - np.rint(depth_use[:, x] * max_shift).astype(np.int32)
             source_x = np.clip(x - sep, 0, x - 1)
             output[:, x] = output[rows, source_x]
-        return output
+
+        show_guides = viewing.endswith("-guides")
+        return self._add_fusion_guides(output, separation) if show_guides else output
 
     def wiggle_frames(
         self,
