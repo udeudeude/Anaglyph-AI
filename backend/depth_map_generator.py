@@ -2,6 +2,13 @@ import os
 import platform
 import time
 
+# PyTorch reads this fallback flag during import. On Intel Macs that expose MPS,
+# let supported operations stay on the GPU while unsupported MPS operations fall
+# back to CPU. AAF_TORCH_DEVICE=cpu remains available as a conservative override.
+_INTEL_MAC = platform.system() == "Darwin" and platform.machine().lower() in {"x86_64", "amd64", "i386"}
+if _INTEL_MAC:
+    os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
 start_import_time = time.time()
 import cv2
 import torch
@@ -15,14 +22,12 @@ print(f"Elapsed time for imports: {end_import_time - start_import_time:.4f} seco
 
 
 def choose_torch_device() -> str:
-    """Choose a conservative device for Depth Anything V2.
+    """Choose a device for Depth Anything V2.
 
-    CUDA is preferred when available. Apple MPS is used by default only on
-    Apple-silicon Macs. PyTorch can expose MPS on some Intel Macs, but common
-    Depth Anything operations (including bicubic upsampling in older PyTorch
-    builds) are not implemented there, so CPU is the reliable default.
-
-    AAF_TORCH_DEVICE=cpu|mps|cuda can be used to override this choice.
+    CUDA is preferred when available. MPS is used when available on Macs. On
+    Intel Macs, PYTORCH_ENABLE_MPS_FALLBACK=1 is enabled before importing torch,
+    so unsupported MPS operations can fall back to CPU without distorting the
+    model input. AAF_TORCH_DEVICE=cpu|mps|cuda can override the default.
     """
     forced = os.getenv("AAF_TORCH_DEVICE", "").strip().lower()
     if forced in {"cpu", "mps", "cuda"}:
@@ -37,12 +42,11 @@ def choose_torch_device() -> str:
     if torch.cuda.is_available():
         return "cuda"
 
-    machine = platform.machine().lower()
-    if torch.backends.mps.is_available() and machine in {"arm64", "aarch64"}:
+    if torch.backends.mps.is_available():
+        if _INTEL_MAC:
+            print("MPS detected on an Intel Mac; trying MPS with CPU fallback for unsupported operations")
         return "mps"
 
-    if torch.backends.mps.is_available() and platform.system() == "Darwin":
-        print("MPS detected on an Intel Mac; using CPU for Depth Anything compatibility")
     return "cpu"
 
 
@@ -78,10 +82,10 @@ class DepthMapGenerator:
         """Generate depth while keeping both model weights and input tensor on our selected device.
 
         Depth Anything V2's stock image2tensor() independently chooses CUDA/MPS/CPU.
-        On Intel Macs that can put the input on MPS even when we intentionally keep
-        the model on CPU, causing a device-type mismatch. Reproducing its preprocessing
-        here lets Anaglyph & Friends make one consistent device decision.
+        Reproducing its preprocessing here lets Anaglyph & Friends make one
+        consistent device decision and preserve the source aspect ratio.
         """
+        started = time.time()
         input_size = 518
         transform = Compose([
             Resize(
@@ -106,7 +110,9 @@ class DepthMapGenerator:
             depth = self.model(tensor)
             depth = F.interpolate(depth[:, None], (h, w), mode="bilinear", align_corners=True)[0, 0]
 
-        return self.normalise(depth.cpu().numpy()).astype(np.float32)
+        result = self.normalise(depth.cpu().numpy()).astype(np.float32)
+        print(f"Depth inference on {self.device}: {time.time() - started:.3f} seconds")
+        return result
 
     def normalise(self, depth_map: np.ndarray) -> np.ndarray:
         minimum = float(np.min(depth_map))
