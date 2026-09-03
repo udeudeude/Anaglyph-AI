@@ -1,5 +1,7 @@
 import numpy as np
 
+from depth_sources import align_depth, normalise_depth
+from stereo_formats import compatibility_stereo, make_anaglyph
 from technique_generator import technique_generator
 
 
@@ -22,6 +24,26 @@ def main():
 
     chroma = technique_generator.chromadepth(image, depth, 0.9, False)
     assert chroma.shape == image.shape and chroma.dtype == np.uint8
+
+    red_cyan = make_anaglyph(image, view, 'red-cyan', 'full')
+    red_green = make_anaglyph(image, view, 'red-green', 'half')
+    red_blue = make_anaglyph(image, view, 'red-blue', 'gray')
+    assert red_cyan.shape == image.shape
+    assert np.all(red_green[:, :, 0] == 0)
+    assert np.all(red_blue[:, :, 1] == 0)
+
+    assert compatibility_stereo(image, view, 'topbottom').shape == (image.shape[0] * 2, image.shape[1], 3)
+    assert compatibility_stereo(image, view, 'halfsbs').shape == image.shape
+    assert compatibility_stereo(image, view, 'rowinterlaced').shape == image.shape
+    assert compatibility_stereo(image, view, 'columninterlaced').shape == image.shape
+    assert compatibility_stereo(image, view, 'checkerboard').shape == image.shape
+
+    depth_small = np.arange(24, dtype=np.uint16).reshape(4, 6)
+    normalised = normalise_depth(depth_small)
+    assert normalised.dtype == np.float32 and normalised.min() >= 0 and normalised.max() <= 1
+    for mode in ('crop', 'fit', 'stretch'):
+        aligned = align_depth(normalised, image.shape[1], image.shape[0], mode)
+        assert aligned.shape == image.shape[:2]
 
     cardboard = technique_generator.cardboard(view, view, 640, 360, 121, 63, 0.92)
     assert cardboard.shape == (360, 640, 3)
