@@ -1,0 +1,287 @@
+import { useMemo, useState } from 'react'
+import type { ChangeEvent } from 'react'
+import './styles/ViewMasterBuilder.css'
+
+type ProcessingStage = 'idle' | 'uploading' | 'depth' | 'stereo' | 'technique' | 'full' | 'ready' | 'error'
+
+type Props = {
+    setProcessingStage: (stage: ProcessingStage) => void
+}
+
+type ReelSlot = {
+    file: File | null
+    previewUrl: string | null
+    name: string
+}
+
+type StereoPair = {
+    left: string
+    right: string
+}
+
+const SLOT_COUNT = 7
+const REEL_DIAMETER_MM = 90
+const FRAME_WIDTH_MM = 11.75
+const FRAME_HEIGHT_MM = 10.5
+const FRAME_CENTER_RADIUS_MM = 31.3
+const INDEX_RADIUS_MM = 38.5
+const MASTER_SIZE_MM = 98
+const MASTER_CENTER_MM = MASTER_SIZE_MM / 2
+const POSITION_STEP_DEG = 360 / 14
+
+const emptySlots = (): ReelSlot[] => Array.from({ length: SLOT_COUNT }, () => ({ file: null, previewUrl: null, name: '' }))
+
+const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+})
+
+const pointOnCircle = (radius: number, angleDeg: number) => {
+    const radians = angleDeg * Math.PI / 180
+    return {
+        x: MASTER_CENTER_MM + radius * Math.cos(radians),
+        y: MASTER_CENTER_MM + radius * Math.sin(radians),
+    }
+}
+
+const scenePositions = (scene: number) => {
+    const left = (scene * 2) % 14
+    return { left, right: (left + 7) % 14 }
+}
+
+function filmMasterSvg(pairs: StereoPair[], imageRotation: number) {
+    const images: string[] = []
+    const labels: string[] = []
+
+    pairs.forEach((pair, scene) => {
+        const positions = scenePositions(scene)
+        ;(['left', 'right'] as const).forEach(eye => {
+            const position = positions[eye]
+            const centerAngle = 180 + position * POSITION_STEP_DEG
+            const center = pointOnCircle(FRAME_CENTER_RADIUS_MM, centerAngle)
+            const rotation = position * POSITION_STEP_DEG + imageRotation
+            const href = pair[eye]
+            images.push(`<image href="${href}" x="${-FRAME_WIDTH_MM / 2}" y="${-FRAME_HEIGHT_MM / 2}" width="${FRAME_WIDTH_MM}" height="${FRAME_HEIGHT_MM}" preserveAspectRatio="xMidYMid slice" transform="translate(${center.x.toFixed(4)} ${center.y.toFixed(4)}) rotate(${rotation.toFixed(4)})"/>`)
+            const labelPoint = pointOnCircle(FRAME_CENTER_RADIUS_MM - 8.0, centerAngle)
+            labels.push(`<text x="${labelPoint.x.toFixed(3)}" y="${labelPoint.y.toFixed(3)}" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="1.5" fill="#4a4a4a">${scene + 1}${eye === 'left' ? 'L' : 'R'}</text>`)
+        })
+    })
+
+    const indexGuides = Array.from({ length: 7 }, (_, index) => {
+        const angle = -90 + index * (360 / 7)
+        const center = pointOnCircle(INDEX_RADIUS_MM, angle)
+        return `<rect x="-2.1" y="-3.5" width="4.2" height="7" rx="0.5" fill="none" stroke="#777" stroke-width="0.18" stroke-dasharray="0.8 0.5" transform="translate(${center.x.toFixed(3)} ${center.y.toFixed(3)}) rotate(${(angle + 90).toFixed(3)})"/>`
+    }).join('')
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${MASTER_SIZE_MM}mm" height="${MASTER_SIZE_MM}mm" viewBox="0 0 ${MASTER_SIZE_MM} ${MASTER_SIZE_MM}">
+  <title>Anaglyph &amp; Friends View-Master transparency master</title>
+  <desc>Seven stereo pairs arranged as fourteen View-Master frames. Print at 100% / actual size.</desc>
+  <defs><clipPath id="reelClip"><circle cx="${MASTER_CENTER_MM}" cy="${MASTER_CENTER_MM}" r="${REEL_DIAMETER_MM / 2}"/></clipPath></defs>
+  <g clip-path="url(#reelClip)">${images.join('')}</g>
+  <g fill="none" stroke="#777" stroke-width="0.18" stroke-dasharray="1 0.65">
+    <circle cx="${MASTER_CENTER_MM}" cy="${MASTER_CENTER_MM}" r="${REEL_DIAMETER_MM / 2}"/>
+    <circle cx="${MASTER_CENTER_MM}" cy="${MASTER_CENTER_MM}" r="3.5"/>
+  </g>
+  ${indexGuides}
+  ${labels.join('')}
+  <g font-family="Arial, sans-serif" fill="#555" text-anchor="middle">
+    <text x="${MASTER_CENTER_MM}" y="3.0" font-size="1.8">VIEW-MASTER TRANSPARENCY MASTER - PRINT 100% / ACTUAL SIZE</text>
+    <text x="${MASTER_CENTER_MM}" y="${MASTER_SIZE_MM - 1.7}" font-size="1.35">90 mm reel - 11.75 x 10.5 mm frames - prototype transport cut guides</text>
+  </g>
+</svg>`
+}
+
+function cardTemplateSvg() {
+    const windows: string[] = []
+    for (let position = 0; position < 14; position += 1) {
+        const centerAngle = 180 + position * POSITION_STEP_DEG
+        const center = pointOnCircle(FRAME_CENTER_RADIUS_MM, centerAngle)
+        const rotation = position * POSITION_STEP_DEG
+        windows.push(`<rect x="${-FRAME_WIDTH_MM / 2}" y="${-FRAME_HEIGHT_MM / 2}" width="${FRAME_WIDTH_MM}" height="${FRAME_HEIGHT_MM}" rx="0.45" fill="#111" transform="translate(${center.x.toFixed(4)} ${center.y.toFixed(4)}) rotate(${rotation.toFixed(4)})"/>`)
+    }
+    const indexHoles = Array.from({ length: 7 }, (_, index) => {
+        const angle = -90 + index * (360 / 7)
+        const center = pointOnCircle(INDEX_RADIUS_MM, angle)
+        return `<rect x="-2.1" y="-3.5" width="4.2" height="7" rx="0.5" fill="#111" transform="translate(${center.x.toFixed(3)} ${center.y.toFixed(3)}) rotate(${(angle + 90).toFixed(3)})"/>`
+    }).join('')
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${MASTER_SIZE_MM}mm" height="${MASTER_SIZE_MM}mm" viewBox="0 0 ${MASTER_SIZE_MM} ${MASTER_SIZE_MM}">
+  <title>Anaglyph &amp; Friends View-Master cardstock template</title>
+  <rect width="100%" height="100%" fill="white"/>
+  <circle cx="${MASTER_CENTER_MM}" cy="${MASTER_CENTER_MM}" r="${REEL_DIAMETER_MM / 2}" fill="#f8f8f4" stroke="#111" stroke-width="0.25"/>
+  ${windows.join('')}
+  ${indexHoles}
+  <circle cx="${MASTER_CENTER_MM}" cy="${MASTER_CENTER_MM}" r="3.5" fill="#111"/>
+  <g font-family="Arial, sans-serif" fill="#222" text-anchor="middle">
+    <text x="${MASTER_CENTER_MM}" y="3.0" font-size="1.8">VIEW-MASTER CARD TEMPLATE - PRINT 100% / ACTUAL SIZE</text>
+    <text x="${MASTER_CENTER_MM}" y="${MASTER_SIZE_MM - 1.7}" font-size="1.35">Cut black areas. Prototype center/index geometry: compare against a standard reel before final assembly.</text>
+  </g>
+</svg>`
+}
+
+function downloadSvg(svg: string, filename: string) {
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+function ViewMasterBuilder({ setProcessingStage }: Props) {
+    const apiUrl = import.meta.env.VITE_FLASK_BACKEND_API_URL || 'http://localhost:8000'
+    const [slots, setSlots] = useState<ReelSlot[]>(emptySlots)
+    const [strength, setStrength] = useState(2)
+    const [popOut, setPopOut] = useState(false)
+    const [imageRotation, setImageRotation] = useState(270)
+    const [building, setBuilding] = useState(false)
+    const [progress, setProgress] = useState('')
+    const [error, setError] = useState('')
+    const [masterSvg, setMasterSvg] = useState('')
+
+    const readyCount = useMemo(() => slots.filter(slot => slot.file).length, [slots])
+    const masterUrl = useMemo(() => masterSvg ? URL.createObjectURL(new Blob([masterSvg], { type: 'image/svg+xml' })) : '', [masterSvg])
+
+    const chooseFile = (index: number, event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
+        if (!file || !file.type.startsWith('image/')) return
+        setMasterSvg('')
+        setError('')
+        setSlots(current => current.map((slot, slotIndex) => {
+            if (slotIndex !== index) return slot
+            if (slot.previewUrl) URL.revokeObjectURL(slot.previewUrl)
+            return { file, previewUrl: URL.createObjectURL(file), name: file.name || `Scene ${index + 1}` }
+        }))
+        event.currentTarget.value = ''
+    }
+
+    const reset = () => {
+        slots.forEach(slot => { if (slot.previewUrl) URL.revokeObjectURL(slot.previewUrl) })
+        if (masterUrl) URL.revokeObjectURL(masterUrl)
+        setSlots(emptySlots())
+        setMasterSvg('')
+        setProgress('')
+        setError('')
+        setProcessingStage('idle')
+    }
+
+    const fetchPair = async (file: File, scene: number): Promise<StereoPair> => {
+        setProgress(`Scene ${scene + 1} of 7: loading original…`)
+        setProcessingStage('uploading')
+        const form = new FormData()
+        form.append('file', file, file.name || `view-master-${scene + 1}.png`)
+        const upload = await fetch(`${apiUrl}/image`, { method: 'POST', body: form, credentials: 'include' })
+        if (!upload.ok) throw new Error(`Scene ${scene + 1}: source upload failed`)
+
+        setProgress(`Scene ${scene + 1} of 7: estimating depth…`)
+        setProcessingStage('depth')
+        const depth = await fetch(`${apiUrl}/depth-map`, { credentials: 'include' })
+        if (!depth.ok) {
+            const body = await depth.json().catch(() => ({}))
+            throw new Error(body.error || `Scene ${scene + 1}: depth estimation failed`)
+        }
+
+        setProgress(`Scene ${scene + 1} of 7: building stereo pair…`)
+        setProcessingStage('stereo')
+        const renderParams = new URLSearchParams({ pop_out: String(popOut), max_disparity_percentage: String(strength) })
+        const render = await fetch(`${apiUrl}/render?${renderParams.toString()}`, { credentials: 'include' })
+        if (!render.ok) throw new Error(`Scene ${scene + 1}: stereo render failed`)
+
+        const outputParams = new URLSearchParams({
+            scope: 'preview', format: 'png', quality: '100', pop_out: String(popOut),
+            max_disparity_percentage: String(strength), swap_eyes: 'false',
+        })
+        const [leftResponse, rightResponse] = await Promise.all([
+            fetch(`${apiUrl}/output/left?${outputParams.toString()}`, { credentials: 'include' }),
+            fetch(`${apiUrl}/output/right?${outputParams.toString()}`, { credentials: 'include' }),
+        ])
+        if (!leftResponse.ok || !rightResponse.ok) throw new Error(`Scene ${scene + 1}: eye-image export failed`)
+        return {
+            left: await blobToDataUrl(await leftResponse.blob()),
+            right: await blobToDataUrl(await rightResponse.blob()),
+        }
+    }
+
+    const build = async () => {
+        const files = slots.map(slot => slot.file)
+        if (files.some(file => !file)) return
+        setBuilding(true)
+        setError('')
+        setMasterSvg('')
+        try {
+            const pairs: StereoPair[] = []
+            for (let scene = 0; scene < SLOT_COUNT; scene += 1) {
+                pairs.push(await fetchPair(files[scene] as File, scene))
+            }
+            setProgress('Laying out fourteen reel frames…')
+            setProcessingStage('technique')
+            setMasterSvg(filmMasterSvg(pairs, imageRotation))
+            setProgress('Reel master ready')
+            setProcessingStage('ready')
+        } catch (caught) {
+            console.error(caught)
+            setError(caught instanceof Error ? caught.message : 'View-Master reel generation failed')
+            setProgress('')
+            setProcessingStage('error')
+        } finally {
+            setBuilding(false)
+        }
+    }
+
+    return (
+        <main className="viewMasterMain">
+            <section className="viewMasterWorkspace">
+                <div className="vmHeader">
+                    <div><div className="panelLabel">SEVEN-SCENE PRINT WORKSPACE</div><h2>View-Master Reel Builder</h2></div>
+                    <div className="vmGeometry">90 mm reel · 14 stereo frames · actual-size SVG master</div>
+                </div>
+
+                <div className="vmNotice">
+                    <strong>First physical-prototype implementation.</strong>
+                    <span>Optical dimensions use documented standard View-Master measurements. The center and seven transport-slot cut guides are intentionally marked as prototype geometry until we compare a print against a real reel.</span>
+                </div>
+
+                <div className="vmSlotGrid">
+                    {slots.map((slot, index) => <label className={slot.file ? 'vmSlot ready' : 'vmSlot'} key={index}>
+                        <input type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/tiff" onChange={(event) => chooseFile(index, event)} disabled={building} />
+                        <span className="vmSlotNumber">{index + 1}</span>
+                        {slot.previewUrl ? <img src={slot.previewUrl} alt={`Scene ${index + 1}`} /> : <span className="vmEmptySlot">Choose scene</span>}
+                        <strong>{slot.file ? 'Replace' : 'Add image'}</strong>
+                        {slot.name && <small>{slot.name}</small>}
+                    </label>)}
+                </div>
+
+                <div className="vmControls">
+                    <div className="vmRange">
+                        <div><strong>3D strength</strong><span>{strength.toFixed(1)}%</span></div>
+                        <input type="range" min="0" max="6" step="0.1" value={strength} onChange={(event) => { setStrength(Number(event.target.value)); setMasterSvg('') }} disabled={building} />
+                        <small>Applied consistently to all seven scenes when the reel is built.</small>
+                    </div>
+                    <label className="vmCheck"><span><strong>Pop out</strong><small>Place depth in front of the stereo window</small></span><input type="checkbox" checked={popOut} onChange={(event) => { setPopOut(event.target.checked); setMasterSvg('') }} disabled={building} /></label>
+                    <label className="vmRotation"><span>Image rotation</span><select value={imageRotation} onChange={(event) => { setImageRotation(Number(event.target.value)); setMasterSvg('') }} disabled={building}><option value={270}>270° · starting point</option><option value={0}>0°</option><option value={90}>90°</option><option value={180}>180°</option></select><small>270° matches a common DIY reel-template convention; physical testing will tell us whether our template needs a different default.</small></label>
+                </div>
+
+                <div className="vmBuildBar">
+                    <div><strong>{readyCount}/7 scenes loaded</strong><span>{progress || 'Depth and stereo views are generated only when you build, so every scene uses the same settings.'}</span></div>
+                    <div className="vmBuildActions"><button className="vmReset" onClick={reset} disabled={building || readyCount === 0}>Reset</button><button className="vmBuild" onClick={() => void build()} disabled={building || readyCount !== 7}>{building ? 'Building reel…' : 'Build View-Master reel'}</button></div>
+                </div>
+                {error && <div className="vmError">{error}</div>}
+
+                {masterSvg && <div className="vmResult">
+                    <div className="vmResultHeader"><div><div className="panelLabel">PRINT MASTER</div><strong>Transparency layout ready</strong><span>The SVG is physically sized in millimeters, so print it at 100% / Actual Size with all fit-to-page scaling disabled.</span></div><div className="vmDownloadActions"><button onClick={() => downloadSvg(masterSvg, 'view-master-transparency-master.svg')}>Download transparency master</button><button onClick={() => downloadSvg(cardTemplateSvg(), 'view-master-card-template.svg')}>Download cardstock template</button></div></div>
+                    <div className="vmReelPreview"><img src={masterUrl} alt="Generated View-Master reel master" /></div>
+                    <div className="vmPrintFacts"><span><strong>Reel:</strong> 90 mm diameter</span><span><strong>Frame:</strong> 11.75 × 10.5 mm</span><span><strong>Pair spacing:</strong> 62.6 mm</span><span><strong>Raster detail:</strong> up to ~1600 px per generated eye view before reel cropping</span></div>
+                </div>}
+            </section>
+        </main>
+    )
+}
+
+export default ViewMasterBuilder
