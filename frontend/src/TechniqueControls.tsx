@@ -55,6 +55,7 @@ function TechniqueControls({ technique, settings, setSettings, onApply, dirty, d
             const response = await fetch(`${apiUrl}/pattern`, { method: 'POST', body: form, credentials: 'include' });
             if (!response.ok) throw new Error(`Pattern upload failed: ${response.status}`);
             setPatternStatus(`Custom pattern ready: ${file.name}`);
+            update('autostereogram', { patternRevision: settings.autostereogram.patternRevision + 1 });
         } catch (error) {
             console.error(error);
             setPatternStatus('Pattern upload failed.');
