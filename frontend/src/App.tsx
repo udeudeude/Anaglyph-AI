@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import AnaglyphEditor from './AnaglyphEditor.tsx'
 import ViewMasterBuilder from './ViewMasterBuilder.tsx'
+import PhantogramBuilder from './PhantogramBuilder.tsx'
 
 type ProcessingStage = 'idle' | 'uploading' | 'depth' | 'stereo' | 'technique' | 'full' | 'ready' | 'error'
-type WorkspaceMode = 'studio' | 'viewmaster'
+type WorkspaceMode = 'studio' | 'phantogram' | 'viewmaster'
 
 const stageLabels: Record<ProcessingStage, string> = {
     idle: 'Processing locally',
@@ -33,7 +34,7 @@ function App() {
 
     const switchWorkspace = (mode: WorkspaceMode) => {
         setWorkspaceMode(mode)
-        setProcessingStage(mode === 'studio' && isDepthMapReady ? 'ready' : 'idle')
+        setProcessingStage(mode !== 'viewmaster' && isDepthMapReady ? 'ready' : 'idle')
     }
 
     const beginResize = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -68,6 +69,7 @@ function App() {
                 <div className="topBarActions">
                     <nav className="workspaceModeNav" aria-label="Workspace">
                         <button className={workspaceMode === 'studio' ? 'active' : ''} onClick={() => switchWorkspace('studio')}>3D Studio</button>
+                        <button className={workspaceMode === 'phantogram' ? 'active' : ''} onClick={() => switchWorkspace('phantogram')}>Phantogram</button>
                         <button className={workspaceMode === 'viewmaster' ? 'active' : ''} onClick={() => switchWorkspace('viewmaster')}>View-Master Reel</button>
                     </nav>
                     <div className={`localBadge stage-${processingStage}`}>
@@ -98,7 +100,7 @@ function App() {
                         setProcessingStage={setProcessingStage}
                     />
                 </section>
-            </main> : <ViewMasterBuilder setProcessingStage={setProcessingStage} />}
+            </main> : workspaceMode === 'phantogram' ? <PhantogramBuilder isDepthMapReady={isDepthMapReady} setProcessingStage={setProcessingStage} /> : <ViewMasterBuilder setProcessingStage={setProcessingStage} />}
         </div>
     )
 }
