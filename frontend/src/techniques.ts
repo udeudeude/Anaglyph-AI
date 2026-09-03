@@ -24,7 +24,7 @@ export type TechniqueSettings = {
     };
     wiggle: { frames: number; duration: number };
     autostereogram: {
-        separation: number; depthStrength: number; dotSize: number; viewing: 'parallel' | 'cross'; color: boolean;
+        separation: number; depthStrength: number; dotSize: number; viewing: 'parallel' | 'cross'; color: boolean; patternRevision: number;
     };
     lenticular: {
         preset: '60lpi' | '50lpi' | '40lpi' | 'custom';
@@ -58,7 +58,7 @@ export const defaultTechniqueSettings: TechniqueSettings = {
         cardTone: 'cream',
     },
     wiggle: { frames: 7, duration: 130 },
-    autostereogram: { separation: 8, depthStrength: 2.3, dotSize: 3, viewing: 'parallel', color: false },
+    autostereogram: { separation: 8, depthStrength: 2.3, dotSize: 3, viewing: 'parallel', color: false, patternRevision: 0 },
     lenticular: {
         preset: '60lpi',
         dpi: 600,
