@@ -3,8 +3,10 @@ import ImageUpload from './ImageUpload.tsx'
 import { useEffect, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import AnaglyphEditor from './AnaglyphEditor.tsx'
+import ViewMasterBuilder from './ViewMasterBuilder.tsx'
 
 type ProcessingStage = 'idle' | 'uploading' | 'depth' | 'stereo' | 'technique' | 'full' | 'ready' | 'error'
+type WorkspaceMode = 'studio' | 'viewmaster'
 
 const stageLabels: Record<ProcessingStage, string> = {
     idle: 'Processing locally',
@@ -18,6 +20,7 @@ const stageLabels: Record<ProcessingStage, string> = {
 }
 
 function App() {
+    const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('studio')
     const [isDepthMapReady, setIsDepthMapReady] = useState<boolean>(false)
     const [isChangeAllowed, setIsChangeAllowed] = useState<boolean>(true)
     const [processingStage, setProcessingStage] = useState<ProcessingStage>('idle')
@@ -27,6 +30,11 @@ function App() {
     useEffect(() => {
         localStorage.setItem('aaf-sidebar-collapsed', String(sidebarCollapsed))
     }, [sidebarCollapsed])
+
+    const switchWorkspace = (mode: WorkspaceMode) => {
+        setWorkspaceMode(mode)
+        setProcessingStage(mode === 'studio' && isDepthMapReady ? 'ready' : 'idle')
+    }
 
     const beginResize = (event: ReactMouseEvent<HTMLDivElement>) => {
         if (sidebarCollapsed) return
@@ -57,12 +65,18 @@ function App() {
                     <div className="brandEyebrow">LOCAL AI STEREO WORKSPACE</div>
                     <h1 className="brandTitle">Anaglyph &amp; Friends</h1>
                 </div>
-                <div className={`localBadge stage-${processingStage}`}>
-                    <span className="statusDot" /> {stageLabels[processingStage]}
+                <div className="topBarActions">
+                    <nav className="workspaceModeNav" aria-label="Workspace">
+                        <button className={workspaceMode === 'studio' ? 'active' : ''} onClick={() => switchWorkspace('studio')}>3D Studio</button>
+                        <button className={workspaceMode === 'viewmaster' ? 'active' : ''} onClick={() => switchWorkspace('viewmaster')}>View-Master Reel</button>
+                    </nav>
+                    <div className={`localBadge stage-${processingStage}`}>
+                        <span className="statusDot" /> {stageLabels[processingStage]}
+                    </div>
                 </div>
             </header>
 
-            <main className={`workspace ${sidebarCollapsed ? 'railCollapsed' : ''}`} style={workspaceStyle}>
+            {workspaceMode === 'studio' ? <main className={`workspace ${sidebarCollapsed ? 'railCollapsed' : ''}`} style={workspaceStyle}>
                 <aside className="controlRail">
                     <button className="collapseRail" onClick={() => setSidebarCollapsed(true)} title="Collapse source panel" aria-label="Collapse source panel">‹</button>
                     <ImageUpload
@@ -84,7 +98,7 @@ function App() {
                         setProcessingStage={setProcessingStage}
                     />
                 </section>
-            </main>
+            </main> : <ViewMasterBuilder setProcessingStage={setProcessingStage} />}
         </div>
     )
 }
