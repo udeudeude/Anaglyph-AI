@@ -197,7 +197,6 @@ class TechniqueGenerator:
         gap = max(0, int(round(gap_in * dpi)))
         arch = max(0, int(round(arch_in * dpi)))
         tones = {
-            # Buff/yellow mounts and arched albumen prints were common on 1860s stereographs.
             "cream": (229, 213, 170),
             "tan": (194, 167, 123),
             "gray": (188, 187, 179),
@@ -211,7 +210,6 @@ class TechniqueGenerator:
         card = self._paper_background(cw, ch, bg)
         draw = ImageDraw.Draw(card)
 
-        # Printed card edge rule, restrained enough to resemble a mount rather than a modern border.
         inset = max(2, int(round(0.045 * dpi)))
         draw.rectangle((inset, inset, cw - inset - 1, ch - inset - 1), outline=rule, width=max(1, dpi // 300))
 
@@ -260,8 +258,6 @@ class TechniqueGenerator:
             checker = ((xx // tile + yy // tile) % 2) * 255
             return cv2.cvtColor(checker.astype(np.uint8), cv2.COLOR_GRAY2BGR)
 
-        # A high-contrast houndstooth-inspired textile tile gives the eye more stable
-        # repeat landmarks than the old random geometric blocks while remaining unobtrusive.
         unit = 48
         tile = np.full((unit, unit, 3), (224, 218, 201), dtype=np.uint8)
         dark = (43, 48, 55)
@@ -317,7 +313,7 @@ class TechniqueGenerator:
                 base = resized[:height, :separation]
         else:
             dot_size = max(1, min(12, int(dot_size)))
-            rng = np.random.default_rng(314159)
+            rng = np.random.default_rng()
             small_h = max(1, math.ceil(height / dot_size))
             small_w = max(1, math.ceil(separation / dot_size))
             if color:
@@ -331,9 +327,6 @@ class TechniqueGenerator:
         output[:, :separation] = base
         rows = np.arange(height)
 
-        # Depth Anything V2 returns larger relative-disparity values for nearer subjects.
-        # In parallel viewing, near features need the smaller repeat separation. Cross-eyed
-        # viewing reverses the perceived depth sign, so invert the depth map for that mode.
         viewing_mode = "cross" if viewing.startswith("cross") else "parallel"
         depth_use = 1.0 - depth if viewing_mode == "cross" else depth
         for x in range(separation, width):
