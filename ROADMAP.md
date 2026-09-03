@@ -44,9 +44,21 @@ This file tracks ideas that are intentionally **not** part of the current implem
   - label examples clearly when special glasses, free-viewing, a stereoscope, animation, or lenticular material are required to perceive the 3D effect
   - where a GitHub README cannot demonstrate the effect directly, show a representative still and explain what the downloaded/animated/printed result is intended to look like
 
+## View-Master reel builder — in progress
+
+The first prototype is now implemented as a separate seven-scene workspace. It accepts seven source images, generates a stereo pair from each using the existing AI depth/stereo pipeline, and lays the fourteen eye views onto an actual-size SVG transparency master plus a matching cardstock cutting template.
+
+Still to validate/refine with a physical reel and viewer:
+
+- exact center spindle-hole geometry
+- exact seven transport/index slot dimensions and phase
+- final default image rotation/orientation
+- printed registration tolerance and useful overscan around each frame
+- optional PDF output after the physical SVG geometry is proven
+- calibration/resolution test reel for comparing printers and transparency films
+
 ## Potential future viewing / export techniques
 
-- **View-Master reel output** using a printable transparency master with seven stereo image pairs per reel (14 individual eye frames), with accurate frame sizing, spacing, and registration guides for cutting/mounting.
 - **MPO / stereo JPEG** for devices and software that store both eye views in one file.
 - **Pulfrich animation** using generated horizontal motion for dark-filter Pulfrich viewing.
 - **Additional autostereoscopic display profiles** when a specific display/panel is available for calibration.
@@ -73,6 +85,7 @@ The current application includes:
 - random-dot autostereograms
 - pattern-based autostereograms
 - lenticular 3D interlacing plus printable LPI calibration bars
+- experimental seven-scene View-Master reel builder with transparency/card templates
 
 ### Lower-priority display / compatibility formats
 
