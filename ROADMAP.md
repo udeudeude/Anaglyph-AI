@@ -37,6 +37,12 @@ This file tracks ideas that are intentionally **not** part of the current implem
   - show the two-Terminal backend/frontend setup
   - show a successfully running local app in the browser
   - include only screenshots that clarify steps where a new GitHub/Terminal user could otherwise get lost
+- **Add visual output examples so someone considering the project can quickly understand what it produces before installing it.**
+  - use one or two strong source images and show the source, AI depth map, and representative finished outputs
+  - include examples of at least red/cyan anaglyph, parallel/cross-eyed stereo, ChromaDepth, a traditional stereoscope card, a random-dot or pattern stereogram, wiggle-gram, and lenticular output
+  - favor a compact gallery near the top of the README rather than forcing readers to infer results from feature descriptions
+  - label examples clearly when special glasses, free-viewing, a stereoscope, animation, or lenticular material are required to perceive the 3D effect
+  - where a GitHub README cannot demonstrate the effect directly, show a representative still and explain what the downloaded/animated/printed result is intended to look like
 
 ## Potential future viewing / export techniques
 
