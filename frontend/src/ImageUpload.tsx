@@ -9,8 +9,12 @@ type Props = {
     setProcessingStage: (stage: 'idle' | 'uploading' | 'depth' | 'stereo' | 'full' | 'ready' | 'error') => void;
 };
 
+type DepthSource = 'ai' | 'imported';
+type DepthFit = 'crop' | 'fit' | 'stretch';
+
 function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChangeAllowed, setProcessingStage }: Props) {
     const imageInputRef = useRef<HTMLInputElement>(null);
+    const depthInputRef = useRef<HTMLInputElement>(null);
     const [imageUrl, setImageUrl] = useState<string | null>(null);
     const [depthMapUrl, setDepthMapUrl] = useState<string | null>(null);
     const [depthMapIsLoading, setDepthMapIsLoading] = useState<boolean>(false);
@@ -18,6 +22,11 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
     const [inspect, setInspect] = useState<{url: string; label: string} | null>(null);
     const [sourceMeta, setSourceMeta] = useState<string>("");
     const [pasteMessage, setPasteMessage] = useState<string>("");
+    const [depthSource, setDepthSource] = useState<DepthSource>('ai');
+    const [hasImportedDepth, setHasImportedDepth] = useState(false);
+    const [depthFit, setDepthFit] = useState<DepthFit>('crop');
+    const [depthInvert, setDepthInvert] = useState(false);
+    const [depthSourceMeta, setDepthSourceMeta] = useState('');
     const apiUrl = import.meta.env.VITE_FLASK_BACKEND_API_URL || "http://localhost:8000";
 
     const replaceObjectUrl = (setter: (value: string | null) => void, oldUrl: string | null, blob: Blob | null) => {
@@ -45,6 +54,67 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
         }
     };
 
+    const activateDepthSource = async (source: DepthSource, mode = depthFit, invert = depthInvert) => {
+        if (!imageUrl) return;
+        if (source === 'imported' && !hasImportedDepth) {
+            depthInputRef.current?.click();
+            return;
+        }
+        setIsChangeAllowed(false);
+        setIsDepthMapReadyStateLifter(false);
+        setDepthMapIsLoading(true);
+        setProcessingStage('depth');
+        try {
+            const response = await fetch(`${apiUrl}/depth-map/source`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ source, mode, invert }),
+            });
+            if (!response.ok) {
+                const body = await response.json().catch(() => ({}));
+                throw new Error(body.error || `Depth source failed: ${response.status}`);
+            }
+            setDepthSource(source);
+            setDepthSourceMeta(source === 'ai' ? 'Depth Anything V2 estimation' : `Imported map · ${mode === 'crop' ? 'crop to fill' : mode === 'fit' ? 'fit inside' : 'stretch to image'}`);
+            await fetchDepthMap();
+        } catch (error) {
+            console.error(error);
+            setProcessingStage('error');
+            setIsChangeAllowed(true);
+        } finally {
+            setDepthMapIsLoading(false);
+        }
+    };
+
+    const handleDepthImport = async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !imageUrl) return;
+        setIsChangeAllowed(false);
+        setIsDepthMapReadyStateLifter(false);
+        setDepthMapIsLoading(true);
+        setProcessingStage('depth');
+        const form = new FormData();
+        form.append('file', file, file.name || 'depth-map.png');
+        form.append('mode', depthFit);
+        form.append('invert', String(depthInvert));
+        try {
+            const response = await fetch(`${apiUrl}/depth-map/import`, { method: 'POST', body: form, credentials: 'include' });
+            const info = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(info.error || `Depth import failed: ${response.status}`);
+            setHasImportedDepth(true);
+            setDepthSource('imported');
+            setDepthSourceMeta(`${info.depth_width} × ${info.depth_height} imported → ${info.source_width} × ${info.source_height} source · ${depthFit === 'crop' ? 'crop to fill' : depthFit === 'fit' ? 'fit inside' : 'stretch'}`);
+            await fetchDepthMap();
+        } catch (error) {
+            console.error(error);
+            setProcessingStage('error');
+            setIsChangeAllowed(true);
+        } finally {
+            setDepthMapIsLoading(false);
+        }
+    };
+
     const normalizePastedFile = (file: File) => {
         if (file.name && file.name.includes('.')) return file;
         const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/webp' ? 'webp' : 'png';
@@ -62,6 +132,11 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
         setProcessingStage('uploading');
         replaceObjectUrl(setDepthMapUrl, depthMapUrl, null);
         replaceObjectUrl(setImageUrl, imageUrl, file);
+        setDepthSource('ai');
+        setHasImportedDepth(false);
+        setDepthFit('crop');
+        setDepthInvert(false);
+        setDepthSourceMeta('Depth Anything V2 estimation');
 
         const megabytes = file.size / (1024 * 1024);
         setSourceMeta(`${megabytes.toFixed(megabytes >= 10 ? 0 : 1)} MB · original retained`);
@@ -172,6 +247,7 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
             </button>
             <button className="secondaryAction" onClick={pasteFromClipboard} disabled={!isChangeAllowed && !!imageUrl}>Paste image <kbd>⌘V</kbd></button>
             <input type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/tiff" ref={imageInputRef} className="hiddenInput" onClick={(e) => { e.currentTarget.value = ""; }} onChange={handleImageChange} />
+            <input type="file" accept=".npy,image/png,image/jpeg,image/jpg,image/webp,image/tiff" ref={depthInputRef} className="hiddenInput" onClick={(e) => { e.currentTarget.value = ""; }} onChange={handleDepthImport} />
             {pasteMessage && <div className="pasteMessage">{pasteMessage}</div>}
 
             <button className="sourcePreview inspectButton" onClick={() => imageUrl && setInspect({url: imageUrl, label: 'Original source'})} disabled={!imageUrl} title={imageUrl ? 'Click to inspect original' : undefined}>
@@ -179,10 +255,19 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
             </button>
             {sourceMeta && <div className="sourceMeta">{sourceMeta}</div>}
 
-            <div className="depthHeader"><span>AI depth map</span>{depthMapIsLoading && <span className="miniLoader" />}</div>
-            <button className="depthPreview inspectButton" onClick={() => depthMapUrl && setInspect({url: depthMapUrl, label: 'AI depth map'})} disabled={!depthMapUrl} title={depthMapUrl ? 'Click to inspect depth map' : undefined}>
-                {depthMapUrl ? <img src={depthMapUrl} alt="AI depth map" /> : <div className="depthPlaceholder">Depth estimation appears here</div>}
+            <div className="depthHeader"><span>{depthSource === 'ai' ? 'AI depth map' : 'Imported depth map'}</span>{depthMapIsLoading && <span className="miniLoader" />}</div>
+            <button className="depthPreview inspectButton" onClick={() => depthMapUrl && setInspect({url: depthMapUrl, label: depthSource === 'ai' ? 'AI depth map' : 'Imported depth map'})} disabled={!depthMapUrl} title={depthMapUrl ? 'Click to inspect depth map' : undefined}>
+                {depthMapUrl ? <img src={depthMapUrl} alt="Depth map" /> : <div className="depthPlaceholder">Depth estimation appears here</div>}
             </button>
+
+            {imageUrl && <div className="depthSourceControls">
+                <label><span>Depth source</span><select value={depthSource} disabled={!isChangeAllowed} onChange={(e) => void activateDepthSource(e.target.value as DepthSource)}><option value="ai">AI generated</option><option value="imported">Imported depth map</option></select></label>
+                <button className="depthImportAction" onClick={() => depthInputRef.current?.click()} disabled={!isChangeAllowed}>{hasImportedDepth ? 'Replace imported map' : 'Import depth map'}</button>
+                {depthSource === 'imported' && <label><span>Aspect matching</span><select value={depthFit} disabled={!isChangeAllowed} onChange={(e) => { const next = e.target.value as DepthFit; setDepthFit(next); void activateDepthSource('imported', next, depthInvert); }}><option value="crop">Crop to fill</option><option value="fit">Fit inside</option><option value="stretch">Stretch to image</option></select></label>}
+                <label className="depthCheck"><input type="checkbox" checked={depthInvert} disabled={!isChangeAllowed} onChange={(e) => { const next = e.target.checked; setDepthInvert(next); void activateDepthSource(depthSource, depthFit, next); }} /> Invert near / far</label>
+                <p>Imported maps may have different dimensions or aspect ratios. PNG/JPEG/TIFF and float32 .npy are accepted.</p>
+                {depthSourceMeta && <div className="depthSourceMeta">{depthSourceMeta}</div>}
+            </div>}
 
             <div className="depthDownloads">
                 <button onClick={() => triggerDepthDownload('gray16')} disabled={!depthMapUrl}>16-bit depth PNG</button>
@@ -190,7 +275,7 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
                 <button onClick={() => triggerDepthDownload('color')} disabled={!depthMapUrl}>Color map</button>
             </div>
 
-            <div className="localNote"><strong>Depth Anything V2</strong><span>The original image stays at full resolution. AI inference and stereo rendering run on this computer.</span></div>
+            <div className="localNote"><strong>{depthSource === 'ai' ? 'Depth Anything V2' : 'Custom depth source'}</strong><span>The original image stays at full resolution. The active depth map drives every 3D technique and can be replaced independently of the visible image.</span></div>
 
             {isDragging && <div className="dropOverlay"><strong>Drop image</strong><span>Full-resolution original will be retained</span></div>}
             {inspect && <div className="inspectOverlay" role="dialog" aria-label={inspect.label} onClick={() => setInspect(null)}>
