@@ -86,7 +86,8 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
         }
         if (technique === 'randomdot' || technique === 'pattern') {
             const s = appliedSettings.autostereogram;
-            return `${apiUrl}/special/autostereogram?${new URLSearchParams({...base, style: technique === 'pattern' ? 'pattern' : 'random', separation: String(s.separation), depth_strength: String(s.depthStrength), dot_size: String(s.dotSize), viewing: s.viewing, color: String(s.color)}).toString()}`;
+            const viewing = `${s.viewing}-${s.guides ? 'guides' : 'plain'}`;
+            return `${apiUrl}/special/autostereogram?${new URLSearchParams({...base, style: technique === 'pattern' ? 'pattern' : 'random', separation: String(s.separation), depth_strength: String(s.depthStrength), dot_size: String(s.dotSize), viewing, color: String(s.color)}).toString()}`;
         }
         if (technique === 'lenticular') {
             const s = appliedSettings.lenticular;
@@ -190,14 +191,16 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
                 if (!prepare.ok) throw new Error(`Full-resolution stereo render failed: ${prepare.status}`);
                 url = basicUrl(activeTechnique, 'full');
             } else {
-                url = specialUrl(activeTechnique, 'full');
+                // Huge full-resolution GIF frames often cannot be decoded at their requested timing.
+                // Wiggle exports therefore use the playback-optimized preview raster; static techniques remain full/final quality.
+                url = specialUrl(activeTechnique, activeTechnique === 'wiggle' ? 'preview' : 'full');
             }
             const response = await fetch(url, { method: 'GET', credentials: 'include' });
-            if (!response.ok) throw new Error(`Full-resolution output failed: ${response.status}`);
+            if (!response.ok) throw new Error(`Final output failed: ${response.status}`);
             triggerBlobDownload(await response.blob(), currentFilename());
             setProcessingStage('ready');
         } catch (error) {
-            console.error('Failed to create full-resolution download', error);
+            console.error('Failed to create final download', error);
             setProcessingStage('error');
         } finally {
             setFullPreparing(false);
@@ -267,7 +270,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
         <div className="editorWorkspace">
             <div className="editorHeader">
                 <div><div className="panelLabel">OUTPUT</div><h2>3D Technique Studio</h2></div>
-                <div className="generationState">{fullPreparing ? <><span className="miniLoader" /> Full resolution</> : outputsAreLoading ? <><span className="miniLoader" /> Rendering {info.label}</> : isDepthMapReady ? "Ready" : "Waiting for image"}</div>
+                <div className="generationState">{fullPreparing ? "Preparing final output…" : outputsAreLoading ? <><span className="miniLoader" /> Rendering {info.label}</> : isDepthMapReady ? "Ready" : "Waiting for image"}</div>
             </div>
 
             <div className="techniqueChooser">
@@ -299,7 +302,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
                 <div className="previewActions">
                     <div className="zoomControls"><button onClick={() => zoomBy(-0.25)} disabled={zoom <= 1}>−</button><button onClick={resetZoom}>{Math.round(zoom * 100)}%</button><button onClick={() => zoomBy(0.25)} disabled={zoom >= 4}>＋</button></div>
                     <button onClick={fullscreen} disabled={!previewUrl}>Fullscreen <kbd>F</kbd></button>
-                    <button className="downloadAction" onClick={() => void downloadCurrent()} disabled={!previewUrl || fullPreparing}>Download <kbd>D</kbd></button>
+                    <button className="downloadAction" onClick={() => void downloadCurrent()} disabled={!previewUrl || fullPreparing}>{fullPreparing ? <><span className="buttonLoader" /> Preparing…</> : <>Download <kbd>D</kbd></>}</button>
                 </div>
             </div>
 
@@ -321,7 +324,7 @@ function AnaglyphEditor({ isDepthMapReady, isChangeAllowed, setIsChangeAllowed, 
             {specialSelected && <TechniqueControls technique={activeTechnique} settings={draftSettings} setSettings={setDraftSettings} onApply={applyTechniqueSettings} dirty={techniqueDirty} disabled={!isChangeAllowed} apiUrl={apiUrl} />}
 
             <div className="downloadPanel">
-                <div className="downloadHeading"><div><strong>Final output</strong><span>Static techniques render from the full-resolution source. Print-specific formats use their selected physical dimensions and DPI.</span></div><span className="fullResBadge">FULL QUALITY</span></div>
+                <div className="downloadHeading"><div><strong>Final output</strong><span>{activeTechnique === 'wiggle' ? 'Animated GIFs are exported at a playback-optimized raster size so the saved file can maintain its requested speed.' : 'Static techniques render from the full-resolution source. Print-specific formats use their selected physical dimensions and DPI.'}</span></div><span className="fullResBadge">FULL QUALITY</span></div>
                 <div className="downloadControls">
                     {fixedFormat ? <div className="fixedFormat"><span>Format</span><strong>{fixedFormat}</strong></div> : <label>Format<select value={downloadFormat} onChange={(e) => setDownloadFormat(e.target.value as 'jpeg' | 'png')}><option value="jpeg">JPEG</option><option value="png">PNG</option></select></label>}
                     {!fixedFormat && downloadFormat === 'jpeg' && <label>JPEG quality<input type="range" min="70" max="100" step="1" value={jpegQuality} onChange={(e) => setJpegQuality(parseInt(e.target.value))} /><strong>{jpegQuality}</strong></label>}
