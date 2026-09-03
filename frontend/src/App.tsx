@@ -5,13 +5,14 @@ import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import AnaglyphEditor from './AnaglyphEditor.tsx'
 import Footer from './Footer.tsx'
 
-type ProcessingStage = 'idle' | 'uploading' | 'depth' | 'stereo' | 'full' | 'ready' | 'error'
+type ProcessingStage = 'idle' | 'uploading' | 'depth' | 'stereo' | 'technique' | 'full' | 'ready' | 'error'
 
 const stageLabels: Record<ProcessingStage, string> = {
     idle: 'Processing locally',
     uploading: 'Loading original…',
     depth: 'Estimating depth…',
     stereo: 'Building stereo views…',
+    technique: 'Rendering selected technique…',
     full: 'Rendering full resolution…',
     ready: 'Ready · processing locally',
     error: 'Processing error',
