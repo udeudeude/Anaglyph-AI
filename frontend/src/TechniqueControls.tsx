@@ -34,7 +34,7 @@ function TechniqueControls({ technique, settings, setSettings, onApply, dirty, d
 
     const applyStereoscopePreset = (preset: TechniqueSettings['stereoscope']['preset']) => {
         if (preset === 'holmes') {
-            update('stereoscope', { preset, dpi: 300, cardWidth: 7, cardHeight: 3.5, imageWidth: 2.85, imageHeight: 2.55, gap: 0.35, arch: 0.22 });
+            update('stereoscope', { preset, dpi: 300, cardWidth: 7, cardHeight: 3.5, imageWidth: 2.85, imageHeight: 2.55, gap: 0.35, arch: 0.22, cardTone: 'white' });
         } else update('stereoscope', { preset });
     };
 
@@ -145,14 +145,21 @@ function TechniqueControls({ technique, settings, setSettings, onApply, dirty, d
                 <label><span>Image width</span><input type="number" step="0.05" value={s.imageWidth} onChange={(e) => update('stereoscope', { imageWidth: numberValue(e.target.value, 2.85), preset: 'custom' })} /><small>in</small></label>
                 <label><span>Image height</span><input type="number" step="0.05" value={s.imageHeight} onChange={(e) => update('stereoscope', { imageHeight: numberValue(e.target.value, 2.55), preset: 'custom' })} /><small>in</small></label>
                 <label><span>Top arch depth</span><input type="number" step="0.01" value={s.arch} onChange={(e) => update('stereoscope', { arch: numberValue(e.target.value, .22), preset: 'custom' })} /><small>in</small></label>
-                <label><span>Mount color</span><select value={s.cardTone} onChange={(e) => update('stereoscope', { cardTone: e.target.value as typeof s.cardTone })}><option value="cream">Historic buff</option><option value="tan">Deep tan</option><option value="gray">Gray</option><option value="black">Black</option><option value="white">White</option></select></label>
+            </div>
+            <div className="colorRenderField">
+                <span>Card treatment</span>
+                <div className="colorRenderSlider">
+                    <button type="button" onClick={() => update('stereoscope', { cardTone: 'white' })} className={s.cardTone !== 'black' ? 'active' : ''}>Black text on white</button>
+                    <button type="button" onClick={() => update('stereoscope', { cardTone: 'black' })} className={s.cardTone === 'black' ? 'active' : ''}>White text on black</button>
+                </div>
+                <small>White is the ink-saving default. Black reverses the mount and labeling for a dark card.</small>
             </div>
             <div className="textFields">
                 <label>Title<input type="text" maxLength={100} value={s.title} onChange={(e) => update('stereoscope', { title: e.target.value })} /></label>
                 <label>Caption<input type="text" maxLength={160} value={s.caption} onChange={(e) => update('stereoscope', { caption: e.target.value })} /></label>
                 <label>Publisher / credit<input type="text" maxLength={120} value={s.publisher} onChange={(e) => update('stereoscope', { publisher: e.target.value })} /></label>
             </div>
-            <p className="techniqueHint">The historic preset uses a warm buff mount, rounded albumen-style arches, a thin photograph keyline, and period-style serif labeling on the common 7 × 3.5 inch card.</p>
+            <p className="techniqueHint">The standard preset uses a white 7 × 3.5 inch card, rounded albumen-style arches, a thin photograph keyline, and period-style serif labeling. Use the dark-card button for white labeling on black.</p>
         </>;
     }
 
