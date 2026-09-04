@@ -28,6 +28,7 @@ const INDEX_RADIUS_MM = 38.5
 const MASTER_SIZE_MM = 98
 const MASTER_CENTER_MM = MASTER_SIZE_MM / 2
 const POSITION_STEP_DEG = 360 / 14
+const SCENE_STEP_DEG = 360 / SLOT_COUNT
 
 const emptySlots = (): ReelSlot[] => Array.from({ length: SLOT_COUNT }, () => ({ file: null, previewUrl: null, name: '' }))
 
@@ -57,11 +58,11 @@ function filmMasterSvg(pairs: StereoPair[], imageRotation: number) {
 
     pairs.forEach((pair, scene) => {
         const positions = scenePositions(scene)
+        const rotation = scene * SCENE_STEP_DEG + imageRotation
         ;(['left', 'right'] as const).forEach(eye => {
             const position = positions[eye]
             const centerAngle = 180 + position * POSITION_STEP_DEG
             const center = pointOnCircle(FRAME_CENTER_RADIUS_MM, centerAngle)
-            const rotation = position * POSITION_STEP_DEG + imageRotation
             const href = pair[eye]
             images.push(`<image href="${href}" x="${-FRAME_WIDTH_MM / 2}" y="${-FRAME_HEIGHT_MM / 2}" width="${FRAME_WIDTH_MM}" height="${FRAME_HEIGHT_MM}" preserveAspectRatio="xMidYMid slice" transform="translate(${center.x.toFixed(4)} ${center.y.toFixed(4)}) rotate(${rotation.toFixed(4)})"/>`)
             const labelPoint = pointOnCircle(FRAME_CENTER_RADIUS_MM - 8.0, centerAngle)
@@ -140,7 +141,7 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
     const [slots, setSlots] = useState<ReelSlot[]>(emptySlots)
     const [strength, setStrength] = useState(2)
     const [popOut, setPopOut] = useState(false)
-    const [imageRotation, setImageRotation] = useState(270)
+    const [imageRotation, setImageRotation] = useState(0)
     const [building, setBuilding] = useState(false)
     const [progress, setProgress] = useState('')
     const [error, setError] = useState('')
@@ -265,7 +266,7 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
                         <small>Applied consistently to all seven scenes when the reel is built.</small>
                     </div>
                     <label className="vmCheck"><span><strong>Pop out</strong><small>Place depth in front of the stereo window</small></span><input type="checkbox" checked={popOut} onChange={(event) => { setPopOut(event.target.checked); setMasterSvg('') }} disabled={building} /></label>
-                    <label className="vmRotation"><span>Image rotation</span><select value={imageRotation} onChange={(event) => { setImageRotation(Number(event.target.value)); setMasterSvg('') }} disabled={building}><option value={270}>270° · starting point</option><option value={0}>0°</option><option value={90}>90°</option><option value={180}>180°</option></select><small>270° matches a common DIY reel-template convention; physical testing will tell us whether our template needs a different default.</small></label>
+                    <label className="vmRotation"><span>Image rotation</span><select value={imageRotation} onChange={(event) => { setImageRotation(Number(event.target.value)); setMasterSvg('') }} disabled={building}><option value={0}>0° · upright at 3/9 o'clock</option><option value={90}>90°</option><option value={180}>180°</option><option value={270}>270°</option></select><small>Rotation advances once per scene around the reel; both eyes of each stereo pair always share the same orientation.</small></label>
                 </div>
 
                 <div className="vmBuildBar">
