@@ -51,6 +51,24 @@ def main():
     card = technique_generator.stereoscope_card(view, view, dpi=72)
     assert card.ndim == 3 and card.shape[2] == 3
 
+    # Stereoscope card regressions: white really means no printed background ink,
+    # black-card labeling is truly white, and the photograph tops stay rounded.
+    black_source = np.zeros((64, 96, 3), dtype=np.uint8)
+    white_card = technique_generator.stereoscope_card(black_source, black_source, dpi=72, card_tone='white', title='TEST', caption='', publisher='')
+    assert np.all(white_card[0, 0] == 255)
+    iw = max(120, int(round(2.85 * 72)))
+    ih = max(120, int(round(2.55 * 72)))
+    gap = int(round(0.35 * 72))
+    x0 = (white_card.shape[1] - (iw * 2 + gap)) // 2
+    y0 = max(2 + 2, int(round(0.16 * 72)))
+    assert np.all(white_card[y0, x0] == 255), 'upper outside corner should remain white'
+    assert np.max(white_card[y0, x0 + iw // 2]) < 80, 'center of rounded photograph crown should contain the image'
+
+    black_card = technique_generator.stereoscope_card(black_source, black_source, dpi=72, card_tone='black', title='WHITE TEST', caption='', publisher='')
+    assert np.all(black_card[0, 0] == 0)
+    text_region = black_card[min(black_card.shape[0] - 1, y0 + ih):, :, :]
+    assert np.max(text_region) == 255, 'black-card lettering should contain true white pixels'
+
     parallel = technique_generator.autostereogram(depth, style='random', separation_percent=10, depth_percent=2, dot_size=2, viewing='parallel')
     cross = technique_generator.autostereogram(depth, style='random', separation_percent=10, depth_percent=2, dot_size=2, viewing='cross')
     assert parallel.shape == image.shape
