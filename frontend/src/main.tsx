@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles/index.css'
+import './styles/FeedbackFixes.css'
 import App from './App.tsx'
 
 // Seed sane defaults before the editor mounts. An earlier settings reader treated
