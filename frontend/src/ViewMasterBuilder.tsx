@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ChangeEvent } from 'react'
+import { downloadViewMasterPdf } from './viewMasterPdf'
 import './styles/ViewMasterBuilder.css'
 
 type ProcessingStage = 'idle' | 'uploading' | 'depth' | 'stereo' | 'technique' | 'full' | 'ready' | 'error'
@@ -146,14 +147,20 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
     const [progress, setProgress] = useState('')
     const [error, setError] = useState('')
     const [masterSvg, setMasterSvg] = useState('')
+    const [masterPairs, setMasterPairs] = useState<StereoPair[] | null>(null)
 
     const readyCount = useMemo(() => slots.filter(slot => slot.file).length, [slots])
     const masterUrl = useMemo(() => masterSvg ? URL.createObjectURL(new Blob([masterSvg], { type: 'image/svg+xml' })) : '', [masterSvg])
 
+    const invalidateMaster = () => {
+        setMasterSvg('')
+        setMasterPairs(null)
+    }
+
     const chooseFile = (index: number, event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0]
         if (!file || !file.type.startsWith('image/')) return
-        setMasterSvg('')
+        invalidateMaster()
         setError('')
         setSlots(current => current.map((slot, slotIndex) => {
             if (slotIndex !== index) return slot
@@ -167,7 +174,7 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
         slots.forEach(slot => { if (slot.previewUrl) URL.revokeObjectURL(slot.previewUrl) })
         if (masterUrl) URL.revokeObjectURL(masterUrl)
         setSlots(emptySlots())
-        setMasterSvg('')
+        invalidateMaster()
         setProgress('')
         setError('')
         setProcessingStage('idle')
@@ -215,7 +222,7 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
         if (files.some(file => !file)) return
         setBuilding(true)
         setError('')
-        setMasterSvg('')
+        invalidateMaster()
         try {
             const pairs: StereoPair[] = []
             for (let scene = 0; scene < SLOT_COUNT; scene += 1) {
@@ -223,6 +230,7 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
             }
             setProgress('Laying out fourteen reel frames…')
             setProcessingStage('technique')
+            setMasterPairs(pairs)
             setMasterSvg(filmMasterSvg(pairs, imageRotation))
             setProgress('Reel master ready')
             setProcessingStage('ready')
@@ -236,12 +244,23 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
         }
     }
 
+    const downloadPdf = async () => {
+        if (!masterPairs) return
+        try {
+            setError('')
+            await downloadViewMasterPdf(masterPairs, imageRotation)
+        } catch (caught) {
+            console.error(caught)
+            setError(caught instanceof Error ? caught.message : 'View-Master PDF export failed')
+        }
+    }
+
     return (
         <main className="viewMasterMain">
             <section className="viewMasterWorkspace">
                 <div className="vmHeader">
                     <div><div className="panelLabel">SEVEN-SCENE PRINT WORKSPACE</div><h2>View-Master Reel Builder</h2></div>
-                    <div className="vmGeometry">90 mm reel · 14 stereo frames · actual-size SVG master</div>
+                    <div className="vmGeometry">90 mm reel · 14 stereo frames · actual-size print master</div>
                 </div>
 
                 <div className="vmNotice">
@@ -262,11 +281,11 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
                 <div className="vmControls">
                     <div className="vmRange">
                         <div><strong>3D strength</strong><span>{strength.toFixed(1)}%</span></div>
-                        <input type="range" min="0" max="6" step="0.1" value={strength} onChange={(event) => { setStrength(Number(event.target.value)); setMasterSvg('') }} disabled={building} />
+                        <input type="range" min="0" max="6" step="0.1" value={strength} onChange={(event) => { setStrength(Number(event.target.value)); invalidateMaster() }} disabled={building} />
                         <small>Applied consistently to all seven scenes when the reel is built.</small>
                     </div>
-                    <label className="vmCheck"><span><strong>Pop out</strong><small>Place depth in front of the stereo window</small></span><input type="checkbox" checked={popOut} onChange={(event) => { setPopOut(event.target.checked); setMasterSvg('') }} disabled={building} /></label>
-                    <label className="vmRotation"><span>Image rotation</span><select value={imageRotation} onChange={(event) => { setImageRotation(Number(event.target.value)); setMasterSvg('') }} disabled={building}><option value={0}>0° · upright at 3/9 o'clock</option><option value={90}>90°</option><option value={180}>180°</option><option value={270}>270°</option></select><small>Rotation advances once per scene around the reel; both eyes of each stereo pair always share the same orientation.</small></label>
+                    <label className="vmCheck"><span><strong>Pop out</strong><small>Place depth in front of the stereo window</small></span><input type="checkbox" checked={popOut} onChange={(event) => { setPopOut(event.target.checked); invalidateMaster() }} disabled={building} /></label>
+                    <label className="vmRotation"><span>Image rotation</span><select value={imageRotation} onChange={(event) => { setImageRotation(Number(event.target.value)); invalidateMaster() }} disabled={building}><option value={0}>0° · upright at 3/9 o'clock</option><option value={90}>90°</option><option value={180}>180°</option><option value={270}>270°</option></select><small>Rotation advances once per scene around the reel; both eyes of each stereo pair always share the same orientation.</small></label>
                 </div>
 
                 <div className="vmBuildBar">
@@ -275,8 +294,8 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
                 </div>
                 {error && <div className="vmError">{error}</div>}
 
-                {masterSvg && <div className="vmResult">
-                    <div className="vmResultHeader"><div><div className="panelLabel">PRINT MASTER</div><strong>Transparency layout ready</strong><span>The SVG is physically sized in millimeters, so print it at 100% / Actual Size with all fit-to-page scaling disabled.</span></div><div className="vmDownloadActions"><button onClick={() => downloadSvg(masterSvg, 'view-master-transparency-master.svg')}>Download transparency master</button><button onClick={() => downloadSvg(cardTemplateSvg(), 'view-master-card-template.svg')}>Download cardstock template</button></div></div>
+                {masterSvg && masterPairs && <div className="vmResult">
+                    <div className="vmResultHeader"><div><div className="panelLabel">PRINT MASTER</div><strong>Reel layout ready</strong><span>PDF is the primary print-ready export: raster eye images are embedded directly and the reel/transport guides remain vector geometry at exact physical dimensions. Print at 100% / Actual Size with fit-to-page scaling disabled.</span></div><div className="vmDownloadActions"><button onClick={() => void downloadPdf()}>Download PDF print master</button><button onClick={() => downloadSvg(masterSvg, 'view-master-transparency-master.svg')}>Download SVG (secondary)</button><button onClick={() => downloadSvg(cardTemplateSvg(), 'view-master-card-template.svg')}>Download cardstock template</button></div></div>
                     <div className="vmReelPreview"><img src={masterUrl} alt="Generated View-Master reel master" /></div>
                     <div className="vmPrintFacts"><span><strong>Reel:</strong> 90 mm diameter</span><span><strong>Frame:</strong> 11.75 × 10.5 mm</span><span><strong>Pair spacing:</strong> 62.6 mm</span><span><strong>Raster detail:</strong> up to ~1600 px per generated eye view before reel cropping</span></div>
                 </div>}
