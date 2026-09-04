@@ -141,14 +141,20 @@ class TechniqueGenerator:
 
     @staticmethod
     def _arched_top(width: int, arch_depth: int):
-        """Historic-style shallow elliptical crown: broad top with rounded shoulders."""
+        """Return a flat crown with visibly rounded upper shoulders."""
         if arch_depth <= 0:
             return [(x, 0) for x in range(width)]
+        shoulder = max(1, min(width // 3, max(arch_depth * 2, int(round(width * 0.14)))))
         points = []
         for x in range(width):
-            normalized = abs((2.0 * x / max(1, width - 1)) - 1.0)
-            curve = 1.0 - math.sqrt(max(0.0, 1.0 - normalized * normalized))
-            points.append((x, int(round(arch_depth * curve))))
+            edge_distance = min(x, width - 1 - x)
+            if edge_distance >= shoulder:
+                y = 0
+            else:
+                normalized = 1.0 - edge_distance / shoulder
+                curve = 1.0 - math.sqrt(max(0.0, 1.0 - normalized * normalized))
+                y = int(round(arch_depth * curve))
+            points.append((x, y))
         return points
 
     @classmethod
@@ -163,11 +169,12 @@ class TechniqueGenerator:
 
     @staticmethod
     def _paper_background(width: int, height: int, color):
-        """Very subtle fixed paper grain so the mount reads as card rather than a flat UI rectangle."""
+        """Render solid white/black cards; retain subtle grain only for legacy colored mounts."""
+        color = tuple(int(channel) for channel in color)
+        if color == (255, 255, 255) or max(color) < 80:
+            return Image.new("RGB", (width, height), color)
         base = np.empty((height, width, 3), dtype=np.int16)
         base[:] = np.array(color, dtype=np.int16)
-        if max(color) < 80:
-            return Image.fromarray(np.clip(base, 0, 255).astype(np.uint8), "RGB")
         rng = np.random.default_rng(1862)
         grain = rng.normal(0.0, 1.6, size=(height, width, 1))
         base = np.clip(base + grain, 0, 255).astype(np.uint8)
@@ -187,7 +194,7 @@ class TechniqueGenerator:
         title: str = "STEREOSCOPIC VIEW",
         caption: str = "Generated from a single photograph",
         publisher: str = "Anaglyph & Friends",
-        card_tone: str = "cream",
+        card_tone: str = "white",
     ) -> np.ndarray:
         dpi = max(72, min(1200, int(dpi)))
         cw = max(600, int(round(card_width_in * dpi)))
@@ -200,13 +207,15 @@ class TechniqueGenerator:
             "cream": (229, 213, 170),
             "tan": (194, 167, 123),
             "gray": (188, 187, 179),
-            "black": (28, 27, 25),
-            "white": (244, 241, 232),
+            "black": (0, 0, 0),
+            "white": (255, 255, 255),
         }
-        bg = tones.get(card_tone.lower(), tones["cream"])
-        fg = (232, 226, 211) if card_tone.lower() == "black" else (48, 37, 25)
-        rule = (150, 128, 92) if card_tone.lower() != "black" else (110, 103, 92)
-        keyline = (58, 43, 27) if card_tone.lower() != "black" else (205, 198, 183)
+        tone = card_tone.lower()
+        bg = tones.get(tone, tones["white"])
+        dark = tone == "black"
+        fg = (255, 255, 255) if dark else (0, 0, 0)
+        rule = (178, 178, 178) if dark else (76, 76, 76)
+        keyline = (220, 220, 220) if dark else (32, 32, 32)
         card = self._paper_background(cw, ch, bg)
         draw = ImageDraw.Draw(card)
 
