@@ -1,8 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles/index.css'
-import './styles/FeedbackFixes.css'
 import App from './App.tsx'
+import './styles/FeedbackFixes.css'
 
 // Seed sane defaults before the editor mounts. An earlier settings reader treated
 // a missing localStorage value as Number(null) === 0, which could make the first
