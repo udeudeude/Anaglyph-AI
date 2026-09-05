@@ -1,18 +1,27 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { downloadViewMasterPdf } from './viewMasterPdf'
+import type { StudioSource } from './studioAssets'
 import './styles/ViewMasterBuilder.css'
+import './styles/ViewMasterPairSlots.css'
 
 type ProcessingStage = 'idle' | 'uploading' | 'depth' | 'stereo' | 'technique' | 'full' | 'ready' | 'error'
 
 type Props = {
     setProcessingStage: (stage: ProcessingStage) => void
+    incomingSource: StudioSource | null
+    onIncomingSourceConsumed: () => void
+    onOpenInStudio: (source: StudioSource) => void
 }
 
 type ReelSlot = {
+    mode: 'single' | 'pair'
     file: File | null
     previewUrl: string | null
-    name: string
+    leftFile: File | null
+    rightFile: File | null
+    leftPreviewUrl: string | null
+    rightPreviewUrl: string | null
 }
 
 type StereoPair = {
@@ -30,8 +39,15 @@ const MASTER_SIZE_MM = 98
 const MASTER_CENTER_MM = MASTER_SIZE_MM / 2
 const POSITION_STEP_DEG = 360 / 14
 const SCENE_STEP_DEG = 360 / SLOT_COUNT
+const VIEWMASTER_HEADERS = { 'X-AAF-Workspace': 'viewmaster' }
 
-const emptySlots = (): ReelSlot[] => Array.from({ length: SLOT_COUNT }, () => ({ file: null, previewUrl: null, name: '' }))
+const emptySlot = (): ReelSlot => ({ mode: 'single', file: null, previewUrl: null, leftFile: null, rightFile: null, leftPreviewUrl: null, rightPreviewUrl: null })
+const emptySlots = (): ReelSlot[] => Array.from({ length: SLOT_COUNT }, emptySlot)
+const slotReady = (slot: ReelSlot) => slot.mode === 'single' ? !!slot.file : !!slot.leftFile && !!slot.rightFile
+
+const releaseSlotUrls = (slot: ReelSlot) => {
+    ;[slot.previewUrl, slot.leftPreviewUrl, slot.rightPreviewUrl].forEach(url => { if (url) URL.revokeObjectURL(url) })
+}
 
 const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -137,7 +153,7 @@ function downloadSvg(svg: string, filename: string) {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-function ViewMasterBuilder({ setProcessingStage }: Props) {
+function ViewMasterBuilder({ setProcessingStage, incomingSource, onIncomingSourceConsumed, onOpenInStudio }: Props) {
     const apiUrl = import.meta.env.VITE_FLASK_BACKEND_API_URL || 'http://localhost:8000'
     const [slots, setSlots] = useState<ReelSlot[]>(emptySlots)
     const [strength, setStrength] = useState(2)
@@ -149,7 +165,9 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
     const [masterSvg, setMasterSvg] = useState('')
     const [masterPairs, setMasterPairs] = useState<StereoPair[] | null>(null)
 
-    const readyCount = useMemo(() => slots.filter(slot => slot.file).length, [slots])
+    const readyCount = useMemo(() => slots.filter(slotReady).length, [slots])
+    const generatedCount = useMemo(() => slots.filter(slot => slot.mode === 'single' && !!slot.file).length, [slots])
+    const importedPairCount = useMemo(() => slots.filter(slot => slot.mode === 'pair' && !!slot.leftFile && !!slot.rightFile).length, [slots])
     const masterUrl = useMemo(() => masterSvg ? URL.createObjectURL(new Blob([masterSvg], { type: 'image/svg+xml' })) : '', [masterSvg])
 
     const invalidateMaster = () => {
@@ -157,21 +175,61 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
         setMasterPairs(null)
     }
 
-    const chooseFile = (index: number, event: ChangeEvent<HTMLInputElement>) => {
+    const replaceSlot = (index: number, replacement: ReelSlot) => {
+        invalidateMaster()
+        setError('')
+        setSlots(current => current.map((slot, slotIndex) => {
+            if (slotIndex !== index) return slot
+            releaseSlotUrls(slot)
+            return replacement
+        }))
+    }
+
+    const slotFromSource = (source: StudioSource): ReelSlot => source.kind === 'single'
+        ? { ...emptySlot(), mode: 'single', file: source.file, previewUrl: URL.createObjectURL(source.file) }
+        : { ...emptySlot(), mode: 'pair', leftFile: source.left, rightFile: source.right, leftPreviewUrl: URL.createObjectURL(source.left), rightPreviewUrl: URL.createObjectURL(source.right) }
+
+    useEffect(() => {
+        if (!incomingSource) return
+        const index = slots.findIndex(slot => !slotReady(slot))
+        if (index < 0) setError('All seven View-Master scenes are already occupied. Clear or replace a scene before sending another Studio source.')
+        else replaceSlot(index, slotFromSource(incomingSource))
+        onIncomingSourceConsumed()
+    }, [incomingSource])
+
+    const setMode = (index: number, mode: 'single' | 'pair') => replaceSlot(index, { ...emptySlot(), mode })
+
+    const chooseSingle = (index: number, event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0]
+        event.currentTarget.value = ''
+        if (!file || !file.type.startsWith('image/')) return
+        replaceSlot(index, { ...emptySlot(), mode: 'single', file, previewUrl: URL.createObjectURL(file) })
+    }
+
+    const choosePairEye = (index: number, eye: 'left' | 'right', event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
+        event.currentTarget.value = ''
         if (!file || !file.type.startsWith('image/')) return
         invalidateMaster()
         setError('')
         setSlots(current => current.map((slot, slotIndex) => {
             if (slotIndex !== index) return slot
-            if (slot.previewUrl) URL.revokeObjectURL(slot.previewUrl)
-            return { file, previewUrl: URL.createObjectURL(file), name: file.name || `Scene ${index + 1}` }
+            const previousUrl = eye === 'left' ? slot.leftPreviewUrl : slot.rightPreviewUrl
+            if (previousUrl) URL.revokeObjectURL(previousUrl)
+            return eye === 'left'
+                ? { ...slot, mode: 'pair', leftFile: file, leftPreviewUrl: URL.createObjectURL(file), file: null, previewUrl: null }
+                : { ...slot, mode: 'pair', rightFile: file, rightPreviewUrl: URL.createObjectURL(file), file: null, previewUrl: null }
         }))
-        event.currentTarget.value = ''
+    }
+
+    const sourceForSlot = (slot: ReelSlot): StudioSource | null => {
+        if (slot.mode === 'single' && slot.file) return { kind: 'single', file: slot.file }
+        if (slot.mode === 'pair' && slot.leftFile && slot.rightFile) return { kind: 'pair', left: slot.leftFile, right: slot.rightFile }
+        return null
     }
 
     const reset = () => {
-        slots.forEach(slot => { if (slot.previewUrl) URL.revokeObjectURL(slot.previewUrl) })
+        slots.forEach(releaseSlotUrls)
         if (masterUrl) URL.revokeObjectURL(masterUrl)
         setSlots(emptySlots())
         invalidateMaster()
@@ -185,12 +243,12 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
         setProcessingStage('uploading')
         const form = new FormData()
         form.append('file', file, file.name || `view-master-${scene + 1}.png`)
-        const upload = await fetch(`${apiUrl}/image`, { method: 'POST', body: form, credentials: 'include' })
+        const upload = await fetch(`${apiUrl}/image`, { method: 'POST', body: form, credentials: 'include', headers: VIEWMASTER_HEADERS })
         if (!upload.ok) throw new Error(`Scene ${scene + 1}: source upload failed`)
 
         setProgress(`Scene ${scene + 1} of 7: estimating depth…`)
         setProcessingStage('depth')
-        const depth = await fetch(`${apiUrl}/depth-map`, { credentials: 'include' })
+        const depth = await fetch(`${apiUrl}/depth-map`, { credentials: 'include', headers: VIEWMASTER_HEADERS })
         if (!depth.ok) {
             const body = await depth.json().catch(() => ({}))
             throw new Error(body.error || `Scene ${scene + 1}: depth estimation failed`)
@@ -199,7 +257,7 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
         setProgress(`Scene ${scene + 1} of 7: building stereo pair…`)
         setProcessingStage('stereo')
         const renderParams = new URLSearchParams({ pop_out: String(popOut), max_disparity_percentage: String(strength) })
-        const render = await fetch(`${apiUrl}/render?${renderParams.toString()}`, { credentials: 'include' })
+        const render = await fetch(`${apiUrl}/render?${renderParams.toString()}`, { credentials: 'include', headers: VIEWMASTER_HEADERS })
         if (!render.ok) throw new Error(`Scene ${scene + 1}: stereo render failed`)
 
         const outputParams = new URLSearchParams({
@@ -207,8 +265,8 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
             max_disparity_percentage: String(strength), swap_eyes: 'false',
         })
         const [leftResponse, rightResponse] = await Promise.all([
-            fetch(`${apiUrl}/output/left?${outputParams.toString()}`, { credentials: 'include' }),
-            fetch(`${apiUrl}/output/right?${outputParams.toString()}`, { credentials: 'include' }),
+            fetch(`${apiUrl}/output/left?${outputParams.toString()}`, { credentials: 'include', headers: VIEWMASTER_HEADERS }),
+            fetch(`${apiUrl}/output/right?${outputParams.toString()}`, { credentials: 'include', headers: VIEWMASTER_HEADERS }),
         ])
         if (!leftResponse.ok || !rightResponse.ok) throw new Error(`Scene ${scene + 1}: eye-image export failed`)
         return {
@@ -218,15 +276,19 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
     }
 
     const build = async () => {
-        const files = slots.map(slot => slot.file)
-        if (files.some(file => !file)) return
+        if (slots.some(slot => !slotReady(slot))) return
         setBuilding(true)
         setError('')
         invalidateMaster()
         try {
             const pairs: StereoPair[] = []
             for (let scene = 0; scene < SLOT_COUNT; scene += 1) {
-                pairs.push(await fetchPair(files[scene] as File, scene))
+                const slot = slots[scene]
+                if (slot.mode === 'pair' && slot.leftFile && slot.rightFile) {
+                    setProgress(`Scene ${scene + 1} of 7: using imported stereo pair…`)
+                    pairs.push({ left: await blobToDataUrl(slot.leftFile), right: await blobToDataUrl(slot.rightFile) })
+                } else if (slot.file) pairs.push(await fetchPair(slot.file, scene))
+                else throw new Error(`Scene ${scene + 1} is incomplete`)
             }
             setProgress('Laying out fourteen reel frames…')
             setProcessingStage('technique')
@@ -264,32 +326,43 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
                 </div>
 
                 <div className="vmNotice">
-                    <strong>First physical-prototype implementation.</strong>
-                    <span>The current reel, frame, center and transport-slot dimensions are working prototype values assembled from reference measurements. They are not yet physically verified against a standard reel.</span>
+                    <strong>Each scene can start either way.</strong>
+                    <span>Use one image and let Anaglyph &amp; Friends generate its stereo pair, or import your own left/right photographs. A reel may mix both source types. Current physical reel geometry remains prototype pending verification.</span>
                 </div>
 
                 <div className="vmSlotGrid">
-                    {slots.map((slot, index) => <label className={slot.file ? 'vmSlot ready' : 'vmSlot'} key={index}>
-                        <input type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/tiff" onChange={(event) => chooseFile(index, event)} disabled={building} />
-                        <span className="vmSlotNumber">{index + 1}</span>
-                        {slot.previewUrl ? <img src={slot.previewUrl} alt={`Scene ${index + 1}`} /> : <span className="vmEmptySlot">Choose scene</span>}
-                        <strong>{slot.file ? 'Replace' : 'Add image'}</strong>
-                        {slot.name && <small>{slot.name}</small>}
-                    </label>)}
+                    {slots.map((slot, index) => {
+                        const ready = slotReady(slot)
+                        const source = sourceForSlot(slot)
+                        return <div className={ready ? 'vmSlot ready' : 'vmSlot'} key={index}>
+                            <span className="vmSlotNumber">{index + 1}</span>
+                            <div className="vmSlotModeSwitch"><button className={slot.mode === 'single' ? 'active' : ''} onClick={() => setMode(index, 'single')} disabled={building}>1 image</button><button className={slot.mode === 'pair' ? 'active' : ''} onClick={() => setMode(index, 'pair')} disabled={building}>L + R</button></div>
+                            <div className={slot.mode === 'pair' ? 'vmSlotPreview vmPairPreview' : 'vmSlotPreview'}>
+                                {slot.mode === 'single' ? (slot.previewUrl ? <img src={slot.previewUrl} alt={`Scene ${index + 1}`} /> : <span className="vmEmptySlot">Choose source image</span>) : <>
+                                    {slot.leftPreviewUrl ? <img src={slot.leftPreviewUrl} alt={`Scene ${index + 1} left`} /> : <span className="vmEyePlaceholder">L</span>}
+                                    {slot.rightPreviewUrl ? <img src={slot.rightPreviewUrl} alt={`Scene ${index + 1} right`} /> : <span className="vmEyePlaceholder">R</span>}
+                                </>}
+                            </div>
+                            <div className="vmSlotPicks">
+                                {slot.mode === 'single' ? <label className="vmSlotPick"><input type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/tiff" onChange={(event) => chooseSingle(index, event)} disabled={building} />{slot.file ? 'Replace image' : 'Choose image'}</label> : <><label className="vmSlotPick"><input type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/tiff" onChange={(event) => choosePairEye(index, 'left', event)} disabled={building} />{slot.leftFile ? 'Replace L' : 'Choose L'}</label><label className="vmSlotPick"><input type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/tiff" onChange={(event) => choosePairEye(index, 'right', event)} disabled={building} />{slot.rightFile ? 'Replace R' : 'Choose R'}</label></>}
+                            </div>
+                            <button className="vmOpenStudio" disabled={!source || building} onClick={() => source && onOpenInStudio(source)}>Open in 3D Studio</button>
+                        </div>
+                    })}
                 </div>
 
                 <div className="vmControls">
                     <div className="vmRange">
-                        <div><strong>3D strength</strong><span>{strength.toFixed(1)}%</span></div>
+                        <div><strong>Generated-scene 3D strength</strong><span>{strength.toFixed(1)}%</span></div>
                         <input type="range" min="0" max="6" step="0.1" value={strength} onChange={(event) => { setStrength(Number(event.target.value)); invalidateMaster() }} disabled={building} />
-                        <small>Applied consistently to all seven scenes when the reel is built.</small>
+                        <small>Applied only to single-image scenes. Imported L/R pairs are kept exactly as supplied.</small>
                     </div>
-                    <label className="vmCheck"><span><strong>Pop out</strong><small>Place depth in front of the stereo window</small></span><input type="checkbox" checked={popOut} onChange={(event) => { setPopOut(event.target.checked); invalidateMaster() }} disabled={building} /></label>
+                    <label className="vmCheck"><span><strong>Pop out</strong><small>Generated single-image scenes only</small></span><input type="checkbox" checked={popOut} onChange={(event) => { setPopOut(event.target.checked); invalidateMaster() }} disabled={building} /></label>
                     <label className="vmRotation"><span>Image rotation</span><select value={imageRotation} onChange={(event) => { setImageRotation(Number(event.target.value)); invalidateMaster() }} disabled={building}><option value={0}>0° · upright at 3/9 o'clock</option><option value={90}>90°</option><option value={180}>180°</option><option value={270}>270°</option></select><small>Rotation advances once per scene around the reel; both eyes of each stereo pair always share the same orientation.</small></label>
                 </div>
 
                 <div className="vmBuildBar">
-                    <div><strong>{readyCount}/7 scenes loaded</strong><span>{progress || 'Depth and stereo views are generated only when you build, so every scene uses the same settings.'}</span></div>
+                    <div><strong>{readyCount}/7 scenes loaded · {generatedCount} generated · {importedPairCount} imported pairs</strong><span>{progress || 'Single-image scenes generate depth/stereo when you build. Imported pairs skip AI processing.'}</span></div>
                     <div className="vmBuildActions"><button className="vmReset" onClick={reset} disabled={building || readyCount === 0}>Reset</button><button className="vmBuild" onClick={() => void build()} disabled={building || readyCount !== 7}>{building ? 'Building reel…' : 'Build View-Master reel'}</button></div>
                 </div>
                 {error && <div className="vmError">{error}</div>}
@@ -297,7 +370,7 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
                 {masterSvg && masterPairs && <div className="vmResult">
                     <div className="vmResultHeader"><div><div className="panelLabel">PRINT MASTER</div><strong>Reel layout ready</strong><span>PDF is the primary print-ready export: raster eye images are embedded directly and the current prototype reel/transport geometry remains vector at 1:1 physical scale. Print at 100% / Actual Size with fit-to-page scaling disabled.</span></div><div className="vmDownloadActions"><button onClick={() => void downloadPdf()}>Download PDF print master</button><button onClick={() => downloadSvg(masterSvg, 'view-master-transparency-master.svg')}>Download SVG (secondary)</button><button onClick={() => downloadSvg(cardTemplateSvg(), 'view-master-card-template.svg')}>Download cardstock template</button></div></div>
                     <div className="vmReelPreview"><img src={masterUrl} alt="Generated View-Master reel master" /></div>
-                    <div className="vmPrintFacts"><span><strong>Prototype reel:</strong> 90 mm diameter</span><span><strong>Prototype frame:</strong> 11.75 × 10.5 mm</span><span><strong>Prototype pair spacing:</strong> 62.6 mm</span><span><strong>Raster detail:</strong> up to ~1600 px per generated eye view before reel cropping</span></div>
+                    <div className="vmPrintFacts"><span><strong>Prototype reel:</strong> 90 mm diameter</span><span><strong>Prototype frame:</strong> 11.75 × 10.5 mm</span><span><strong>Prototype pair spacing:</strong> 62.6 mm</span><span><strong>Imported pairs:</strong> original raster retained before reel cropping</span></div>
                 </div>}
             </section>
         </main>

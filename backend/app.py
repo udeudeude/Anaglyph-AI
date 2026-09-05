@@ -50,12 +50,20 @@ def assign_session_id():
         session["session_id"] = str(uuid.uuid4())
 
 
+def session_namespace() -> str:
+    workspace = request.headers.get("X-AAF-Workspace", "").strip().lower()
+    safe_workspace = "".join(char for char in workspace if char.isalnum() or char in "-_")[:32]
+    if not safe_workspace:
+        return session["session_id"]
+    return f"{session['session_id']}__{safe_workspace}"
+
+
 def session_path(suffix: str) -> str:
-    return os.path.join(SESSION_DATA_FOLDER, f"{session['session_id']}_{suffix}")
+    return os.path.join(SESSION_DATA_FOLDER, f"{session_namespace()}_{suffix}")
 
 
 def clear_session_products():
-    prefix = f"{session['session_id']}_"
+    prefix = f"{session_namespace()}_"
     for filename in os.listdir(SESSION_DATA_FOLDER):
         if filename.startswith(prefix):
             try:

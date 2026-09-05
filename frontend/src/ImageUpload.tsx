@@ -7,12 +7,15 @@ type Props = {
     isChangeAllowed: boolean;
     setIsChangeAllowed: (allowed: boolean) => void;
     setProcessingStage: (stage: 'idle' | 'uploading' | 'depth' | 'stereo' | 'full' | 'ready' | 'error') => void;
+    onSourceFile?: (file: File) => void;
+    incomingSourceFile?: File | null;
+    onIncomingSourceConsumed?: () => void;
 };
 
 type DepthSource = 'ai' | 'imported';
 type DepthFit = 'crop' | 'fit' | 'stretch';
 
-function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChangeAllowed, setProcessingStage }: Props) {
+function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChangeAllowed, setProcessingStage, onSourceFile, incomingSourceFile, onIncomingSourceConsumed }: Props) {
     const imageInputRef = useRef<HTMLInputElement>(null);
     const depthInputRef = useRef<HTMLInputElement>(null);
     const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -153,6 +156,7 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
                 const body = await response.json().catch(() => ({}));
                 throw new Error(body.error || `Upload failed: ${response.status}`);
             }
+            onSourceFile?.(file);
             const info = await response.json();
             if (info.width && info.height) {
                 setSourceMeta(`${info.width} × ${info.height} · ${megabytes.toFixed(megabytes >= 10 ? 0 : 1)} MB · full resolution`);
@@ -176,6 +180,17 @@ function ImageUpload({ setIsDepthMapReadyStateLifter, isChangeAllowed, setIsChan
         const file = Array.from(event.dataTransfer.files).find(candidate => candidate.type.startsWith('image/'));
         if (file) await handleImageFile(file);
     };
+
+    useEffect(() => {
+        if (!incomingSourceFile) return;
+        let cancelled = false;
+        const loadIncoming = async () => {
+            await handleImageFile(incomingSourceFile);
+            if (!cancelled) onIncomingSourceConsumed?.();
+        };
+        void loadIncoming();
+        return () => { cancelled = true; };
+    }, [incomingSourceFile]);
 
     const pasteFromClipboard = async () => {
         try {
