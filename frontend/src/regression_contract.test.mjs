@@ -8,6 +8,7 @@ const imageUpload=read('./ImageUpload.tsx');
 const pairEditor=read('./StereoPairEditor.tsx');
 const pairRender=read('./stereoPairRender.ts');
 const phantogram=read('./PhantogramBuilder.tsx');
+const modelPhantogram=read('./modelPhantogram.ts');
 const viewMaster=read('./ViewMasterBuilder.tsx');
 const viewMasterPdf=read('./viewMasterPdf.ts');
 const feedbackCss=read('./styles/FeedbackFixes.css');
@@ -19,7 +20,8 @@ const required=[
  [pairEditor,'Imported Stereo Pair Studio','imported pair studio'],[pairEditor,'Add pair to View-Master','pair to View-Master handoff'],[pairEditor,'Requires source + depth map','pair-mode depth limitations'],
  [pairRender,'renderStereoPairOutput','local imported-pair renderer'],[pairRender,'renderAnaglyph','imported-pair anaglyph'],[pairRender,'renderLenticular','two-view lenticular renderer'],
  [feedbackCss,'position: sticky','sticky output preview'],[feedbackCss,'repeat(2, minmax(0, 1fr))','equal stereoscope treatment buttons'],
- [phantogram,'100 mm ruler','phantogram print calibration'],[phantogram,'reverseDepth','phantogram depth reversal'],[phantogram,'scope=full','phantogram full-resolution export'],
+ [phantogram,'100 mm ruler','phantogram print calibration'],[phantogram,'reverseDepth','phantogram depth reversal'],[phantogram,"sourceMode === 'model'",'phantogram 3D model source mode'],[phantogram,'GLB 2.0, OBJ, and binary/ASCII STL','phantogram model import UI'],[phantogram,'renderModelPhantogram','phantogram model rendering'],
+ [modelPhantogram,'parseModelFile','3D model parser'],[modelPhantogram,"lower.endsWith('.glb')",'GLB model support'],[modelPhantogram,"lower.endsWith('.obj')",'OBJ model support'],[modelPhantogram,"lower.endsWith('.stl')",'STL model support'],[modelPhantogram,'renderEye','independent physical eye projection'],[modelPhantogram,'pngWithDpi','model phantogram physical DPI metadata'],
  [viewMaster,'const rotation = scene * SCENE_STEP_DEG + imageRotation','View-Master pair-level rotation'],[viewMaster,"0° · upright at 3/9 o'clock",'View-Master upright reference pair'],[viewMaster,'Download PDF print master','View-Master PDF primary export'],[viewMaster,'Download SVG (secondary)','View-Master SVG secondary export'],[viewMaster,'fill="#fff"','View-Master pure-white cardstock'],[viewMaster,'prototype geometry','View-Master prototype labeling'],[viewMaster,'L + R','View-Master imported-pair scene mode'],[viewMaster,'Open in 3D Studio','View-Master to Studio scene handoff'],[viewMaster,'using imported stereo pair','mixed View-Master source build'],
  [viewMasterPdf,'PT_PER_MM = 72 / 25.4','View-Master physical PDF scale'],[viewMasterPdf,'/Subtype /Image','View-Master embedded PDF raster images'],[viewMasterPdf,"type: 'application/pdf'",'View-Master PDF output'],[viewMasterPdf,'const rotation = scene * SCENE_STEP_DEG + imageRotation','View-Master PDF pair-level rotation']
 ];
