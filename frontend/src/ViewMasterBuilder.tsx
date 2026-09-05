@@ -113,14 +113,14 @@ function cardTemplateSvg() {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${MASTER_SIZE_MM}mm" height="${MASTER_SIZE_MM}mm" viewBox="0 0 ${MASTER_SIZE_MM} ${MASTER_SIZE_MM}">
   <title>Anaglyph &amp; Friends View-Master cardstock template</title>
-  <rect width="100%" height="100%" fill="white"/>
-  <circle cx="${MASTER_CENTER_MM}" cy="${MASTER_CENTER_MM}" r="${REEL_DIAMETER_MM / 2}" fill="#f8f8f4" stroke="#111" stroke-width="0.25"/>
+  <rect width="100%" height="100%" fill="#fff"/>
+  <circle cx="${MASTER_CENTER_MM}" cy="${MASTER_CENTER_MM}" r="${REEL_DIAMETER_MM / 2}" fill="#fff" stroke="#111" stroke-width="0.25"/>
   ${windows.join('')}
   ${indexHoles}
   <circle cx="${MASTER_CENTER_MM}" cy="${MASTER_CENTER_MM}" r="3.5" fill="#111"/>
   <g font-family="Arial, sans-serif" fill="#222" text-anchor="middle">
     <text x="${MASTER_CENTER_MM}" y="3.0" font-size="1.8">VIEW-MASTER CARD TEMPLATE - PRINT 100% / ACTUAL SIZE</text>
-    <text x="${MASTER_CENTER_MM}" y="${MASTER_SIZE_MM - 1.7}" font-size="1.35">Cut black areas. Prototype center/index geometry: compare against a standard reel before final assembly.</text>
+    <text x="${MASTER_CENTER_MM}" y="${MASTER_SIZE_MM - 1.7}" font-size="1.35">Cut black areas. All reel, frame, center and index dimensions are prototype geometry pending physical verification.</text>
   </g>
 </svg>`
 }
@@ -265,7 +265,7 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
 
                 <div className="vmNotice">
                     <strong>First physical-prototype implementation.</strong>
-                    <span>Optical dimensions use documented standard View-Master measurements. The center and seven transport-slot cut guides are intentionally marked as prototype geometry until we compare a print against a real reel.</span>
+                    <span>The current reel, frame, center and transport-slot dimensions are working prototype values assembled from reference measurements. They are not yet physically verified against a standard reel.</span>
                 </div>
 
                 <div className="vmSlotGrid">
@@ -295,9 +295,9 @@ function ViewMasterBuilder({ setProcessingStage }: Props) {
                 {error && <div className="vmError">{error}</div>}
 
                 {masterSvg && masterPairs && <div className="vmResult">
-                    <div className="vmResultHeader"><div><div className="panelLabel">PRINT MASTER</div><strong>Reel layout ready</strong><span>PDF is the primary print-ready export: raster eye images are embedded directly and the reel/transport guides remain vector geometry at exact physical dimensions. Print at 100% / Actual Size with fit-to-page scaling disabled.</span></div><div className="vmDownloadActions"><button onClick={() => void downloadPdf()}>Download PDF print master</button><button onClick={() => downloadSvg(masterSvg, 'view-master-transparency-master.svg')}>Download SVG (secondary)</button><button onClick={() => downloadSvg(cardTemplateSvg(), 'view-master-card-template.svg')}>Download cardstock template</button></div></div>
+                    <div className="vmResultHeader"><div><div className="panelLabel">PRINT MASTER</div><strong>Reel layout ready</strong><span>PDF is the primary print-ready export: raster eye images are embedded directly and the current prototype reel/transport geometry remains vector at 1:1 physical scale. Print at 100% / Actual Size with fit-to-page scaling disabled.</span></div><div className="vmDownloadActions"><button onClick={() => void downloadPdf()}>Download PDF print master</button><button onClick={() => downloadSvg(masterSvg, 'view-master-transparency-master.svg')}>Download SVG (secondary)</button><button onClick={() => downloadSvg(cardTemplateSvg(), 'view-master-card-template.svg')}>Download cardstock template</button></div></div>
                     <div className="vmReelPreview"><img src={masterUrl} alt="Generated View-Master reel master" /></div>
-                    <div className="vmPrintFacts"><span><strong>Reel:</strong> 90 mm diameter</span><span><strong>Frame:</strong> 11.75 × 10.5 mm</span><span><strong>Pair spacing:</strong> 62.6 mm</span><span><strong>Raster detail:</strong> up to ~1600 px per generated eye view before reel cropping</span></div>
+                    <div className="vmPrintFacts"><span><strong>Prototype reel:</strong> 90 mm diameter</span><span><strong>Prototype frame:</strong> 11.75 × 10.5 mm</span><span><strong>Prototype pair spacing:</strong> 62.6 mm</span><span><strong>Raster detail:</strong> up to ~1600 px per generated eye view before reel cropping</span></div>
                 </div>}
             </section>
         </main>
